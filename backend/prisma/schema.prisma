@@ -12,6 +12,35 @@ datasource db {
   provider = "postgresql"
 }
 
+enum StorageColor {
+  GREEN
+  BLACK
+  ORANGE
+}
+
+enum TrackingType {
+  BULK
+  INDIVIDUAL
+}
+
+enum AssetStatus {
+  AVAILABLE
+  CHECKED_OUT
+  UNDER_MAINTENANCE
+  DAMAGED
+  LOST
+  RETIRED
+}
+
+enum InventoryMovementType {
+  STOCK_IN
+  CHECKOUT
+  RETURN
+  ADJUSTMENT
+  MARK_DAMAGED
+  MARK_LOST
+  RETIRE
+}
 
 // ============================================================
 //USER
@@ -22,18 +51,26 @@ enum AuthType {
 }
 
 model User {
-  id            String    @id @default(uuid()) @db.Uuid
-  name          String   
-  email         String    @unique
-  googleId      String?   @unique @map("google_id")
-  profileImage  String?   @map("profile_image")
-  isActive      Boolean   @default(true) @map("is_active")
-  authType AuthType @default(UNIVERSITY) @map("auth_type")
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  email          String   @unique
+  neonAuthUserId String?  @unique @map("neon_auth_user_id")
+  profileImage   String?  @map("profile_image")
+  isActive       Boolean  @default(true) @map("is_active")
+  authType       AuthType @default(UNIVERSITY) @map("auth_type")
 
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  lastLoginAt   DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz(6)
+
+  checkedOutAssets            Asset[]             @relation("AssetCheckedOutTo")
+  performedInventoryMovements InventoryMovement[] @relation("InventoryMovementPerformedBy")
+  memberInventoryMovements    InventoryMovement[] @relation("InventoryMovementMember")
+
+  // Inventory loans
+  receivedLoans InventoryLoan[] @relation("InventoryLoanMember")
+  issuedLoans   InventoryLoan[] @relation("InventoryLoanIssuedBy")
+
   // Role assigned to this User
   roleAssignments UserRoleAssignment[] @relation("AssignedUserRoles")
 
@@ -43,64 +80,252 @@ model User {
   @@map("users")
 }
 
-
 // ============================================================
 // ROLE
 // ============================================================
 
 model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  description String?
 
-  id            String   @id @default(uuid()) @db.Uuid
-  name          String   @unique
-  description   String?
-
-
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   // Users who have this role
-  assignments UserRoleAssignment[]  
+  assignments UserRoleAssignment[]
 
-  @@map("roles")   
+  @@map("roles")
 }
-
-
 
 // ============================================================
 // USER ROLE ASSIGNMENT
 // ============================================================
 
 model UserRoleAssignment {
-    id            String   @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-    // Relate to User
-    userId        String   @map("user_id") @db.Uuid
-    roleId        String   @map("role_id") @db.Uuid
+  // Relate to User
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
 
-    // Who granted this role
-    // Nullable only for initial system bootstrap
-    assignedById String? @map("assigned_by_id") @db.Uuid
+  // Who granted this role
+  // Nullable only for initial system bootstrap
+  assignedById String? @map("assigned_by_id") @db.Uuid
 
-    assignedAt DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
-    expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
-    revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  assignedAt DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
 
+  // Relationship with the user receiving the role
+  user User @relation("AssignedUserRoles", fields: [userId], references: [id], onDelete: Restrict)
 
-    // Relationship with the user receiving the role
-    user User @relation("AssignedUserRoles",  fields: [userId], references: [id], onDelete: Restrict)
+  // Relationship with the role being assigned
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
-    // Relationship with the role being assigned
-    role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  // Relationship with the user granting the role
+  assignedBy User? @relation("RoleAssignmentGrantedBy", fields: [assignedById], references: [id], onDelete: Restrict)
 
-    // Relationship with the user granting the role
-    assignedBy User? @relation( "RoleAssignmentGrantedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  @@index([userId, roleId, revokedAt])
+  @@index([roleId, revokedAt])
+  @@index([assignedById])
+  @@map("user_role_assignments")
+}
 
+model ComponentCategory {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
 
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  components Component[]
 
-    @@index([userId, roleId, revokedAt])
-    @@index([roleId, revokedAt])
-    @@index([assignedById])
+  @@map("component_categories")
+}
 
-    @@map("user_role_assignments")
+// ============================================================
+// STORAGE BUCKETS
+// ============================================================
+
+model StorageRack {
+  id             String       @id @default(uuid()) @db.Uuid
+  color          StorageColor
+  drawersPerRack Int          @map("drawers_per_rack")
+  rackNumber     Int          @map("rack_number")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  drawers StorageDrawer[]
+
+  @@unique([color, drawersPerRack, rackNumber])
+  @@map("storage_racks")
+}
+
+model StorageDrawer {
+  id           String @id @default(uuid()) @db.Uuid
+  rackId       String @map("rack_id") @db.Uuid
+  drawerNumber Int    @map("drawer_number")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rack       StorageRack @relation(fields: [rackId], references: [id], onDelete: Restrict)
+  components Component[]
+
+  @@unique([rackId, drawerNumber])
+  @@map("storage_drawers")
+}
+
+// Components
+
+model Component {
+  id           String          @id @default(uuid()) @db.Uuid
+  code         String          @unique
+  name         String
+  description  String?
+  loans        InventoryLoan[]
+  categoryId   String          @map("category_id") @db.Uuid
+  trackingType TrackingType    @map("tracking_type")
+
+  // Used for BULK components.
+  // NULL for INDIVIDUAL components.
+  quantityAvailable Int? @map("quantity_available")
+
+  unit         String @default("pcs")
+  minimumStock Int    @default(0) @map("minimum_stock")
+
+  storageDrawerId String? @map("storage_drawer_id") @db.Uuid
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  category      ComponentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  storageDrawer StorageDrawer?    @relation(fields: [storageDrawerId], references: [id], onDelete: Restrict)
+
+  assets    Asset[]
+  movements InventoryMovement[]
+
+  @@index([categoryId])
+  @@index([storageDrawerId])
+  @@index([name])
+  @@map("components")
+}
+
+// Assets
+
+model Asset {
+  id          String @id @default(uuid()) @db.Uuid
+  componentId String @map("component_id") @db.Uuid
+
+  loans InventoryLoan[]
+
+  assetTag     String  @unique @map("asset_tag")
+  serialNumber String? @unique @map("serial_number")
+
+  status AssetStatus @default(AVAILABLE)
+
+  checkedOutToId String?   @map("checked_out_to_id") @db.Uuid
+  checkedOutAt   DateTime? @map("checked_out_at") @db.Timestamptz(6)
+
+  acquiredAt DateTime? @map("acquired_at") @db.Timestamptz(6)
+  notes      String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  component    Component @relation(fields: [componentId], references: [id], onDelete: Restrict)
+  checkedOutTo User?     @relation("AssetCheckedOutTo", fields: [checkedOutToId], references: [id], onDelete: Restrict)
+
+  movements InventoryMovement[]
+
+  @@index([componentId, status])
+  @@index([checkedOutToId])
+  @@map("assets")
+}
+
+// Inventory movements
+
+model InventoryMovement {
+  id String @id @default(uuid()) @db.Uuid
+
+  componentId String  @map("component_id") @db.Uuid
+  assetId     String? @map("asset_id") @db.Uuid
+
+  movementType   InventoryMovementType @map("movement_type")
+  quantityChange Int                   @map("quantity_change")
+
+  performedById String  @map("performed_by_id") @db.Uuid
+  memberId      String? @map("member_id") @db.Uuid
+
+  note String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  component Component @relation(fields: [componentId], references: [id], onDelete: Restrict)
+  asset     Asset?    @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  performedBy User  @relation("InventoryMovementPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  member      User? @relation("InventoryMovementMember", fields: [memberId], references: [id], onDelete: Restrict)
+
+  loanId String?        @map("loan_id") @db.Uuid
+  loan   InventoryLoan? @relation(fields: [loanId], references: [id], onDelete: Restrict)
+
+  @@index([componentId, createdAt])
+  @@index([assetId, createdAt])
+  @@index([performedById, createdAt])
+  @@index([memberId, createdAt])
+  @@map("inventory_movements")
+}
+
+// ============================================================
+// INVENTORY LOAN
+// ============================================================
+
+model InventoryLoan {
+  id String @id @default(uuid()) @db.Uuid
+
+  // What is being borrowed?
+  componentId String  @map("component_id") @db.Uuid
+  assetId     String? @map("asset_id") @db.Uuid
+
+  // Who is borrowing and issuing?
+  memberId   String @map("member_id") @db.Uuid
+  issuedById String @map("issued_by_id") @db.Uuid
+
+  // Quantity tracking
+  quantityBorrowed   Int @map("quantity_borrowed")
+  quantityReturned   Int @default(0) @map("quantity_returned")
+  quantityWrittenOff Int @default(0) @map("quantity_written_off")
+
+  // Loan information
+  checkedOutAt DateTime  @default(now()) @map("checked_out_at") @db.Timestamptz(6)
+  dueAt        DateTime? @map("due_at") @db.Timestamptz(6)
+  note         String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relationships
+  component Component @relation(fields: [componentId], references: [id], onDelete: Restrict)
+
+  asset Asset? @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  member User @relation("InventoryLoanMember", fields: [memberId], references: [id], onDelete: Restrict)
+
+  issuedBy User @relation("InventoryLoanIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
+
+  movements InventoryMovement[]
+
+  @@index([componentId])
+  @@index([memberId])
+  @@index([issuedById])
+  @@index([assetId])
+  @@index([dueAt])
+  @@map("inventory_loans")
 }

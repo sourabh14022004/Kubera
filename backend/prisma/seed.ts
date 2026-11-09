@@ -47,6 +47,93 @@ const roles =[
 ] 
 
 
+const storageLayout = [
+  {
+    color: "GREEN",
+    drawersPerRack: 3,
+    rackNumbers: [1, 2, 3],
+  },
+  {
+    color: "BLACK",
+    drawersPerRack: 2,
+    rackNumbers: [1, 2],
+  },
+  {
+    color: "BLACK",
+    drawersPerRack: 3,
+    rackNumbers: [1, 2],
+  },
+  {
+    color: "BLACK",
+    drawersPerRack: 4,
+    rackNumbers: [1, 2],
+  },
+  {
+    color: "ORANGE",
+    drawersPerRack: 2,
+    rackNumbers: [1, 2, 3],
+  },
+] as const;
+
+async function seedStorageLocations() {
+  let racksProcessed = 0;
+  let drawersProcessed = 0;
+
+  for (const group of storageLayout) {
+    for (const rackNumber of group.rackNumbers) {
+      // Create the rack if it doesn't exist.
+      const rack = await prisma.storageRack.upsert({
+        where: {
+          color_drawersPerRack_rackNumber: {
+            color: group.color,
+            drawersPerRack: group.drawersPerRack,
+            rackNumber,
+          },
+        },
+        update: {},
+        create: {
+          color: group.color,
+          drawersPerRack: group.drawersPerRack,
+          rackNumber,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      racksProcessed++;
+
+      // Register every drawer in this rack.
+      for (
+        let drawerNumber = 1;
+        drawerNumber <= group.drawersPerRack;
+        drawerNumber++
+      ) {
+        await prisma.storageDrawer.upsert({
+          where: {
+            rackId_drawerNumber: {
+              rackId: rack.id,
+              drawerNumber,
+            },
+          },
+          update: {},
+          create: {
+            rackId: rack.id,
+            drawerNumber,
+          },
+        });
+
+        drawersProcessed++;
+      }
+    }
+  }
+
+  console.log(
+    `Storage seeded successfully: ${racksProcessed} racks and ${drawersProcessed} drawers.`
+  );
+}
+
+
 async function main() {
     for (const role of roles) {
         await prisma.role.upsert({
@@ -123,6 +210,7 @@ console.log("Roles seeded succesfully!");
   }
 
   console.log(`Initial Super Admin configured: ${email}`);
+  await seedStorageLocations();
 }
 
 
