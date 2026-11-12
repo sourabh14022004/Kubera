@@ -17,7 +17,7 @@ app.use(express.json());
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "your api is running",
+    message: "your api is running, tum maje karo",
   });
 });
 
