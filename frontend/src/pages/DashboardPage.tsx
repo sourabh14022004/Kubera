@@ -9,7 +9,7 @@ import {
   Clock,
 } from "lucide-react";
 
-import StatCard from "../components/common/StartCard";
+import StatCard from "../components/common/StatCard";
 
 const statistics = [
   {

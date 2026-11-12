@@ -9,6 +9,9 @@ import InventoryPage from "./pages/InventoryPage";
 
 import DashboardLayout from "./components/layout/DashboardLayout";
 
+import StoragePage from "./pages/StoragePage";
+
+
 function App() {
   return (
     <Routes>
@@ -21,7 +24,7 @@ function App() {
         <Route
           path="/inventory"
           element={
-            <InventoryPage/>
+            <InventoryPage />
           }
         />
 
@@ -37,12 +40,7 @@ function App() {
 
         <Route
           path="/storage"
-          element={
-            <PlaceholderPage
-              title="Storage Locations"
-              description="Explore racks, cabinets and drawer locations."
-            />
-          }
+          element={<StoragePage />}
         />
 
         <Route
