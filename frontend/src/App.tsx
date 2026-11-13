@@ -10,6 +10,7 @@ import InventoryPage from "./pages/InventoryPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 
 import StoragePage from "./pages/StoragePage";
+import RequiredAuth from "./auth/RequiredAuth";
 
 
 function App() {
@@ -18,8 +19,9 @@ function App() {
       <Route path="/" element={<HomePage />} />
       <Route path="/login" element={<LoginPage />} />
 
-      <Route element={<DashboardLayout />}>
-        <Route path="/dashboard" element={<DashboardPage />} />
+      <Route element={<RequiredAuth />}>
+        <Route element={<DashboardLayout />}>
+          <Route path="/dashboard" element={<DashboardPage />} />
 
         <Route
           path="/inventory"
@@ -62,6 +64,7 @@ function App() {
             />
           }
         />
+        </Route>
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
