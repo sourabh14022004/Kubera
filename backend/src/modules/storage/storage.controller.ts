@@ -1,10 +1,12 @@
 
 import type { Request, Response } from "express";
-
+import { StorageColor } from "../../generated/prisma/enums.js";
 import {
   getAllRacks,
   getRackById,
   getDrawerById,
+  createRack,
+  ALLOWED_DRAWERS,
 } from "./storage.service.js";
 
 // Basic UUID validation before querying PostgreSQL.
@@ -110,6 +112,60 @@ export async function getDrawerByIdController(
     res.status(500).json({
       success: false,
       message: "Failed to fetch storage drawer.",
+    });
+  }
+}
+
+
+// POST /api/storage/racks 
+export async function createRackController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    const { color, drawersPerRack } = req.body;
+
+    // Validate storage color.
+    if (
+      typeof color !== "string" ||
+      !Object.values(StorageColor).includes(color as StorageColor)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid storage color.",
+      });
+      return;
+    }
+
+    // Validate drawer count against physical rack configuration.
+    if (
+      typeof drawersPerRack !== "number" ||
+      !Number.isInteger(drawersPerRack) ||
+      !ALLOWED_DRAWERS[color as StorageColor].includes(drawersPerRack)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: `Invalid drawer count for ${color}.`,
+      });
+      return;
+    }
+
+    const rack = await createRack(
+      color as StorageColor,
+      drawersPerRack,
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Storage rack created successfully.",
+      data: rack,
+    });
+  } catch (error) {
+    console.error("Failed to create storage rack:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create storage rack.",
     });
   }
 }

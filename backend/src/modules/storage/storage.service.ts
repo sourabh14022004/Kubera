@@ -1,4 +1,4 @@
-
+import { StorageColor } from "../../generated/prisma/client.js";
 import { prisma } from "../../config/database.js";
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -149,4 +149,60 @@ export async function getDrawerById(drawerId: string) {
       locationCode: rackCode,
     },
   };
+}
+
+
+export const ALLOWED_DRAWERS: Record<StorageColor, number[]> = {
+  GREEN: [3],
+  BLACK: [2, 3, 4],
+  ORANGE: [2],
+};
+
+export async function createRack(
+  color: StorageColor,
+  drawersPerRack: number,
+) {
+  return prisma.$transaction(async (tx) => {
+    // Find the highest rack number in this color/drawer group.
+    const lastRack = await tx.storageRack.findFirst({
+      where: {
+        color,
+        drawersPerRack,
+      },
+      orderBy: {
+        rackNumber: "desc",
+      },
+      select: {
+        rackNumber: true,
+      },
+    });
+
+    const nextRackNumber = (lastRack?.rackNumber ?? 0) + 1;
+
+    // Create the rack and all its drawers atomically.
+    const rack = await tx.storageRack.create({
+      data: {
+        color,
+        drawersPerRack,
+        rackNumber: nextRackNumber,
+        drawers: {
+          create: Array.from(
+            { length: drawersPerRack },
+            (_, index) => ({
+              drawerNumber: index + 1,
+            }),
+          ),
+        },
+      },
+      include: {
+        drawers: {
+          orderBy: {
+            drawerNumber: "asc",
+          },
+        },
+      },
+    });
+
+    return addLocationCodes(rack);
+  });
 }
