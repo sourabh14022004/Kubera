@@ -18,6 +18,14 @@ enum StorageColor {
   ORANGE
 }
 
+// ============================================================
+// RETIRED rack implementing
+// ============================================================
+enum StorageRackStatus {
+  ACTIVE
+  RETIRED
+}
+
 enum TrackingType {
   BULK
   INDIVIDUAL
@@ -155,6 +163,9 @@ model StorageRack {
   color          StorageColor
   drawersPerRack Int          @map("drawers_per_rack")
   rackNumber     Int          @map("rack_number")
+
+  status    StorageRackStatus @default(ACTIVE)
+  retiredAt DateTime?         @map("retired_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

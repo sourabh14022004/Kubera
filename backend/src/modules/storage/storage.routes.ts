@@ -1,7 +1,13 @@
 import { Router } from "express";
-import { getAllRacksController, getDrawerByIdController, getRackByIdController, createRackController } from "./storage.controller.js";
+import {
+    getAllRacksController,
+    getDrawerByIdController,
+    getRackByIdController,
+    createRackController,
+    retireRackController,
+    restoreRackController,
+} from "./storage.controller.js";
 import { requireAuth } from "../../middlewares/requireAuth.js";
-
 import { requireRole } from "../../middlewares/requireRole.js";
 
 const router = Router();
@@ -11,14 +17,36 @@ router.use(...requireAuth);
 
 // POST /api/storage/racks
 router.post(
-  "/racks",
-  requireRole(
-    "SUPER_ADMIN",
-    "ADMIN",
-    "CLUB_PRESIDENT",
-    "VICE_PRESIDENT",
-  ),
-  createRackController,
+    "/racks",
+    requireRole(
+        "SUPER_ADMIN",
+        "ADMIN",
+        "CLUB_PRESIDENT",
+        "VICE_PRESIDENT",
+    ),
+    createRackController,
+);
+
+// PATCH /api/storage/racks/:rackId/retire
+router.patch(
+    "/racks/:rackId/retire",
+    requireRole(
+        "SUPER_ADMIN",
+        "ADMIN",
+        "CLUB_PRESIDENT",
+    ),
+    retireRackController,
+);
+
+// PATCH /api/storage/racks/:rackId/restore
+router.patch(
+    "/racks/:rackId/restore",
+    requireRole(
+        "SUPER_ADMIN",
+        "ADMIN", 
+        "CLUB_PRESIDENT"
+    ),
+    restoreRackController,
 );
 
 //GET /api/storage/racks

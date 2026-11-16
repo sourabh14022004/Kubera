@@ -1,5 +1,6 @@
 import { StorageColor } from "../../generated/prisma/client.js";
 import { prisma } from "../../config/database.js";
+import { StorageRackStatus } from "../../generated/prisma/client.js";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
@@ -34,8 +35,11 @@ function addLocationCodes<
 }
 
 // GET /api/storage/racks
-export async function getAllRacks() {
+export async function getAllRacks(
+  status: StorageRackStatus | "ALL" = StorageRackStatus.ACTIVE,
+) {
   const racks = await prisma.storageRack.findMany({
+    where: status === "ALL" ? undefined : { status },
     orderBy: [
       { color: "asc" },
       { drawersPerRack: "asc" },
@@ -205,4 +209,138 @@ export async function createRack(
 
     return addLocationCodes(rack);
   });
+}
+
+
+export async function retireRack(rackId: string) {
+  return prisma.$transaction(async (tx) => {
+    const rack = await tx.storageRack.findUnique({
+      where: { id: rackId },
+      include: {
+        drawers: {
+          select: {
+            components: {
+              select: {
+                id: true,
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Check whether the rack exists.
+    if (!rack) {
+      return { outcome: "NOT_FOUND" as const };
+    }
+
+    // Prevent retiring an already retired rack.
+    if (rack.status === StorageRackStatus.RETIRED) {
+      return { outcome: "ALREADY_RETIRED" as const };
+    }
+
+    // Count all components assigned to this rack.
+    const componentCount = rack.drawers.reduce(
+      (total, drawer) => total + drawer.components.length,
+      0,
+    );
+
+    // A rack must be empty before retirement.
+    if (componentCount > 0) {
+      return {
+        outcome: "HAS_COMPONENTS" as const,
+        componentCount,
+      };
+    }
+
+    // Mark the rack as retired without deleting its records.
+    const retiredRack = await tx.storageRack.update({
+      where: { id: rackId },
+      data: {
+        status: StorageRackStatus.RETIRED,
+        retiredAt: new Date(),
+      },
+      include: {
+        drawers: {
+          orderBy: {
+            drawerNumber: "asc",
+          },
+        },
+      },
+    });
+
+    return {
+      outcome: "RETIRED" as const,
+      data: addLocationCodes(retiredRack),
+    };
+  })
+}
+
+export async function restoreRack(rackId: string) {
+  return prisma.$transaction(async (tx) => {
+    // Check whether the rack exists and its current status.
+    const rack = await tx.storageRack.findUnique({
+      where: { id: rackId},
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if(!rack) {
+      return { outcome: "NOT_FOUND" as const};
+    }
+
+    if (rack.status === StorageRackStatus.ACTIVE) {
+      return {outcome: "ALREADY_ACTIVE"  as const};
+    }
+
+    // Restore only if the rack is currently retired.
+    const updateResult = await tx.storageRack.updateMany({
+      where: {
+        id: rackId,
+        status: StorageRackStatus.RETIRED,
+      }, 
+      data: {
+        status: StorageRackStatus.ACTIVE,
+        retiredAt: null,
+      },
+    })
+
+    // Handle a concurrent change safely
+    if(updateResult.count === 0) {
+      const latestRack = await tx.storageRack.findUnique({
+        where: {id: rackId},
+        select: {status: true}
+      });
+
+      if (!latestRack) {
+        return { outcome: "NOT_FOUND" as const};
+      }
+
+      if (latestRack.status === StorageRackStatus.ACTIVE) {
+        return { outcome: "ALREADY_ACTIVE" as const}
+      }
+
+      throw new Error("Unable to restore the rack.")
+    }
+
+    const restoredRack = await tx.storageRack.findUnique({
+      where: { id: rackId},
+      include: {
+        drawers: {
+          orderBy: { drawerNumber: "asc"},
+        },
+      },
+    });
+
+    if (!restoredRack) {
+      return { outcome: "NOT_FOUND" as const};
+    }
+
+    return {
+      outcome: "RESTORED" as const,
+      data: addLocationCodes(restoredRack)
+    }
+  })
 }
