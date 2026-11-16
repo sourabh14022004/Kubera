@@ -344,3 +344,67 @@ export async function restoreRack(rackId: string) {
     }
   })
 }
+
+// This deletes the rack's records permanently; it is different from retirement, which preserves them.
+function isForeignKeyConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" && 
+    error !== null &&
+    "code" in error &&
+    error.code === "P2003"
+  );
+}
+
+export async function deleteRack(rackId: string) {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const rack = await tx.storageRack.findUnique({
+        where: {id: rackId},
+        include: {
+          drawers: {
+            select: {
+              components: {
+                select: {id: true},
+              }
+            }
+          }
+        }
+      });
+
+      if(!rack) {
+        return {outcome: "NOT_FOUND" as const};
+      }
+
+      const componentCount = rack.drawers.reduce(
+        (total, drawer) => total + drawer.components.length,
+        0
+      );
+
+      if(componentCount > 0) {
+        return {
+          outcome: "HAS_COMPONENTS" as const,
+          componentCount,
+        }
+      };
+      
+      // Delete the empty drawers before deleting their parent rack.
+      await tx.storageDrawer.deleteMany({
+        where: {rackId},
+      })
+
+      await tx.storageRack.delete({
+        where: {id: rackId},
+      })
+
+      return { outcome: "DELETED" as const}
+    })
+  } catch (error) {
+    // The database protects against a concurrent component assignment.
+    if (isForeignKeyConstraintError(error)) {
+      return { outcome: "BLOCKED_BY_REFERENCE" as const  };
+    }
+
+    throw error;
+    
+  }
+}

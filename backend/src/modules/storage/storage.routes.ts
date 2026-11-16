@@ -6,6 +6,7 @@ import {
     createRackController,
     retireRackController,
     restoreRackController,
+    deleteRackController
 } from "./storage.controller.js";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { requireRole } from "../../middlewares/requireRole.js";
@@ -43,11 +44,23 @@ router.patch(
     "/racks/:rackId/restore",
     requireRole(
         "SUPER_ADMIN",
-        "ADMIN", 
+        "ADMIN",
         "CLUB_PRESIDENT"
     ),
     restoreRackController,
 );
+
+// DELETE /api/storage/racks/:rackId
+router.delete(
+    "/racks/:rackId",
+    requireRole(
+        "SUPER_ADMIN",
+        "ADMIN",
+        "CLUB_PRESIDENT"
+    ),
+    deleteRackController,
+);
+
 
 //GET /api/storage/racks
 router.get("/racks", getAllRacksController);

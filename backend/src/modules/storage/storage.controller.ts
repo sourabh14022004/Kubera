@@ -11,7 +11,8 @@ import {
   createRack,
   ALLOWED_DRAWERS,
   retireRack,
-  restoreRack
+  restoreRack,
+  deleteRack
 } from "./storage.service.js";
 import { json } from "node:stream/consumers";
 
@@ -295,8 +296,8 @@ export async function restoreRackController(
           message: "Rack is already active.",
         })
         return;
-      
-      case "RESTORED": 
+
+      case "RESTORED":
         res.status(200).json({
           success: true,
           message: "Rack restored successfully.",
@@ -312,5 +313,66 @@ export async function restoreRackController(
       success: false,
       message: "Internal server error"
     });
+  }
+}
+
+
+// This help you to controlle the deletion of rack functionality
+export async function deleteRackController(
+  req: Request<{ rackId: string }>,
+  res: Response,
+): Promise<void> {
+  try {
+    const { rackId } = req.params;
+
+    if (!UUID_REGEX.test(rackId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid rack ID.",
+      })
+      return;
+    }
+
+    const result = await deleteRack(rackId)
+
+    switch (result.outcome) {
+      case "NOT_FOUND":
+        res.status(404).json({
+          success: false,
+          message: "Rack not found.",
+        })
+        return;
+
+      case "HAS_COMPONENTS":
+        res.status(409).json({
+          success: false,
+          message: "Rack cannot be deleted because it contains components.",
+          componentCount: result.componentCount,
+        });
+        return;
+
+      case "BLOCKED_BY_REFERENCE":
+        res.status(409).json({
+          success: false,
+          message: "Rack cannot be deleted because it is referenced by existing records.",
+        });
+        return;
+
+      case "DELETED":
+        res.status(200).json({
+          success: true,
+          message: "Rack and its empty drawers deleted successfully.",
+        });
+        return;
+    }
+  } catch (error) {
+
+    console.error("Delete rack error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+
   }
 }
