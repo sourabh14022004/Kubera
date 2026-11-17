@@ -1,6 +1,10 @@
 import type { Request, Response } from "express";
 import { TrackingType } from "../../generated/prisma/client.js";
-import { createComponent } from "./component.service.js";
+import { 
+    createComponent, 
+    getAllComponents,
+    type ComponentStatus,
+} from "./component.service.js";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -233,6 +237,137 @@ export async function createComponentController(
     }
 
     console.error("Create component error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+}
+
+// GET /api/components
+export async function getAllComponentsController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    const {
+      search,
+      categoryId,
+      trackingType,
+      storageDrawerId,
+      status,
+      page,
+      limit,
+    } = req.query;
+
+    // Ensure query parameters are single strings.
+    const queryValues = [
+      search,
+      categoryId,
+      trackingType,
+      storageDrawerId,
+      status,
+      page,
+      limit,
+    ];
+
+    if (queryValues.some((value) => value !== undefined && typeof value !== "string")) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid query parameters.",
+      });
+      return;
+    }
+
+    // Validate status.
+    const componentStatus = String(status ?? "ACTIVE").toUpperCase();
+
+    if (!["ACTIVE", "INACTIVE", "ALL"].includes(componentStatus)) {
+      res.status(400).json({
+        success: false,
+        message: "Status must be ACTIVE, INACTIVE, or ALL.",
+      });
+      return;
+    }
+
+    // Validate tracking type.
+    const selectedTrackingType =
+      trackingType === undefined
+        ? undefined
+        : String(trackingType).toUpperCase();
+
+    if (
+      selectedTrackingType !== undefined &&
+      selectedTrackingType !== TrackingType.BULK &&
+      selectedTrackingType !== TrackingType.INDIVIDUAL
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Tracking type must be BULK or INDIVIDUAL.",
+      });
+      return;
+    }
+
+    // Validate optional UUID filters.
+    if (
+      categoryId !== undefined &&
+      !UUID_REGEX.test(String(categoryId))
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid category ID.",
+      });
+      return;
+    }
+
+    if (
+      storageDrawerId !== undefined &&
+      !UUID_REGEX.test(String(storageDrawerId))
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid storage drawer ID.",
+      });
+      return;
+    }
+
+    // Validate pagination.
+    const pageNumber = Number(page ?? "1");
+    const limitNumber = Number(limit ?? "20");
+
+    if (
+      !Number.isInteger(pageNumber) ||
+      pageNumber < 1 ||
+      !Number.isInteger(limitNumber) ||
+      limitNumber < 1 ||
+      limitNumber > 100
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Page must be positive and limit must be between 1 and 100.",
+      });
+      return;
+    }
+
+    const result = await getAllComponents({
+      search: typeof search === "string" ? search.trim() : undefined,
+      categoryId: categoryId as string | undefined,
+      trackingType: selectedTrackingType as TrackingType | undefined,
+      storageDrawerId: storageDrawerId as string | undefined,
+      status: componentStatus as ComponentStatus,
+      page: pageNumber,
+      limit: limitNumber,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: result.data.length,
+      pagination: result.pagination,
+      data: result.data,
+    });
+  } catch (error) {
+    console.error("Get components error:", error);
 
     res.status(500).json({
       success: false,

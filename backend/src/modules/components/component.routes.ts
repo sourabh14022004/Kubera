@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createComponentController } from "./component.controller.js";
+import { createComponentController, getAllComponentsController } from "./component.controller.js";
 
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { requireRole } from "../../middlewares/requireRole.js";
@@ -8,6 +8,9 @@ const router = Router();
 
 // All component routes require authentication.
 router.use(...requireAuth);
+
+// GET /api/components
+router.get("/", getAllComponentsController);
 
 // POST /api/components
 router.post(
