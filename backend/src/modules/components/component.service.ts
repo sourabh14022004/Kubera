@@ -19,6 +19,17 @@ interface CreateComponentInput {
     performedById: string;
 }
 
+interface GetComponentsInput {
+    search?: string;
+    categoryId?: string;
+    trackingType?: TrackingType;
+    storageDrawerId?: string;
+    status: ComponentStatus;
+    stockStatus?: ComponentStockStatus;
+    page: number;
+    limit: number;
+}
+
 export async function createComponent(input: CreateComponentInput) {
     return prisma.$transaction(async (tx) => {
         // 1. Verify that the category exists and is active.
@@ -113,8 +124,12 @@ export async function createComponent(input: CreateComponentInput) {
         };
     });
 }
-export type ComponentStatus = "ACTIVE" | "INACTIVE" | "ALL";
 
+export type ComponentStatus = "ACTIVE" | "INACTIVE" | "ALL";
+export type ComponentStockStatus =
+    | "LOW_STOCK"
+    | "OUT_OF_STOCK"
+    | "IN_STOCK";
 interface GetComponentsInput {
     search?: string;
     categoryId?: string;
@@ -159,6 +174,36 @@ export async function getAllComponents(
                         mode: "insensitive",
                     },
                 },
+            ],
+        }),
+
+        ...(input.stockStatus && {
+            AND: [
+                {
+                    trackingType: TrackingType.BULK,
+                },
+                ...(input.stockStatus === "LOW_STOCK"
+                    ? [
+                        {
+                            quantityAvailable: {
+                                gt: 0,
+                                lte: prisma.component.fields.minimumStock,
+                            },
+                        },
+                    ]
+                    : input.stockStatus === "OUT_OF_STOCK"
+                        ? [
+                            {
+                                quantityAvailable: 0,
+                            },
+                        ]
+                        : [
+                            {
+                                quantityAvailable: {
+                                    gt: prisma.component.fields.minimumStock,
+                                },
+                            },
+                        ]),
             ],
         }),
     };
