@@ -3,6 +3,7 @@ import {
     TrackingType,
     InventoryMovementType,
     StorageRackStatus,
+    type Prisma
 } from "../../generated/prisma/client.js";
 
 interface CreateComponentInput {
@@ -111,4 +112,122 @@ export async function createComponent(input: CreateComponentInput) {
             data: component,
         };
     });
+}
+export type ComponentStatus = "ACTIVE" | "INACTIVE" | "ALL";
+
+interface GetComponentsInput {
+    search?: string;
+    categoryId?: string;
+    trackingType?: TrackingType;
+    storageDrawerId?: string;
+    status: ComponentStatus;
+    page: number;
+    limit: number;
+}
+
+export async function getAllComponents(
+    input: GetComponentsInput,
+) {
+    const where: Prisma.ComponentWhereInput = {
+        ...(input.status !== "ALL" && {
+            isActive: input.status === "ACTIVE",
+        }),
+
+        ...(input.categoryId && {
+            categoryId: input.categoryId,
+        }),
+
+        ...(input.trackingType && {
+            trackingType: input.trackingType,
+        }),
+
+        ...(input.storageDrawerId && {
+            storageDrawerId: input.storageDrawerId,
+        }),
+
+        ...(input.search && {
+            OR: [
+                {
+                    name: {
+                        contains: input.search,
+                        mode: "insensitive",
+                    },
+                },
+                {
+                    code: {
+                        contains: input.search,
+                        mode: "insensitive",
+                    },
+                },
+            ],
+        }),
+    };
+
+    const skip = (input.page - 1) * input.limit;
+
+    const [components, total] = await prisma.$transaction([
+        prisma.component.findMany({
+            where,
+            skip,
+            take: input.limit,
+            orderBy: {
+                name: "asc",
+            },
+            include: {
+                category: {
+                    select: {
+                        id: true,
+                        name: true,
+                    },
+                },
+                storageDrawer: {
+                    select: {
+                        id: true,
+                        drawerNumber: true,
+                        rack: {
+                            select: {
+                                color: true,
+                                drawersPerRack: true,
+                                rackNumber: true,
+                                status: true,
+                            },
+                        },
+                    },
+                },
+                _count: {
+                    select: {
+                        assets: true,
+                        movements: true,
+                    },
+                },
+            },
+        }),
+
+        prisma.component.count({ where }),
+    ]);
+
+    const data = components.map((component) => {
+        const drawer = component.storageDrawer;
+        const rack = drawer?.rack;
+
+        const locationCode =
+            drawer && rack
+                ? `${rack.color}-R${String(rack.drawersPerRack).padStart(2, "0")}-C${String(rack.rackNumber).padStart(2, "0")}-D${String(drawer.drawerNumber).padStart(2, "0")}`
+                : null;
+
+        return {
+            ...component,
+            locationCode,
+        };
+    });
+
+    return {
+        data,
+        pagination: {
+            page: input.page,
+            limit: input.limit,
+            total,
+            totalPages: Math.ceil(total / input.limit),
+        },
+    };
 }
