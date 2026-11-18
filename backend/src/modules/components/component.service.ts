@@ -3,6 +3,7 @@ import {
     TrackingType,
     InventoryMovementType,
     StorageRackStatus,
+    AssetStatus,
     type Prisma
 } from "../../generated/prisma/client.js";
 
@@ -19,16 +20,7 @@ interface CreateComponentInput {
     performedById: string;
 }
 
-interface GetComponentsInput {
-    search?: string;
-    categoryId?: string;
-    trackingType?: TrackingType;
-    storageDrawerId?: string;
-    status: ComponentStatus;
-    stockStatus?: ComponentStockStatus;
-    page: number;
-    limit: number;
-}
+
 
 export async function createComponent(input: CreateComponentInput) {
     return prisma.$transaction(async (tx) => {
@@ -137,6 +129,7 @@ interface GetComponentsInput {
     trackingType?: TrackingType;
     storageDrawerId?: string;
     status: ComponentStatus;
+    stockStatus?: ComponentStockStatus;
     page: number;
     limit: number;
 }
@@ -378,6 +371,101 @@ export async function updateComponent(
     return {
       outcome: "UPDATED" as const,
       data: component,
+    };
+  });
+}
+
+export async function deactivateComponent(componentId: string) {
+  return prisma.$transaction(async (tx) => {
+    const component = await tx.component.findUnique({
+      where: { id: componentId },
+      select: {
+        id: true,
+        isActive: true,
+        assets: {
+          where: {
+            status: AssetStatus.CHECKED_OUT,
+          },
+          select: { id: true },
+        },
+        loans: {
+          select: {
+            quantityBorrowed: true,
+            quantityReturned: true,
+            quantityWrittenOff: true,
+          },
+        },
+      },
+    });
+
+    if (!component) {
+      return { outcome: "NOT_FOUND" as const };
+    }
+
+    if (!component.isActive) {
+      return { outcome: "ALREADY_INACTIVE" as const };
+    }
+
+    const outstandingLoanQuantity = component.loans.reduce(
+      (total, loan) =>
+        total +
+        Math.max(
+          0,
+          loan.quantityBorrowed -
+            loan.quantityReturned -
+            loan.quantityWrittenOff,
+        ),
+      0,
+    );
+
+    const checkedOutAssetCount = component.assets.length;
+
+    if (outstandingLoanQuantity > 0 || checkedOutAssetCount > 0) {
+      return {
+        outcome: "HAS_OUTSTANDING_LOANS" as const,
+        outstandingLoanQuantity,
+        checkedOutAssetCount,
+      };
+    }
+
+    const updated = await tx.component.update({
+      where: { id: componentId },
+      data: { isActive: false },
+    });
+
+    return {
+      outcome: "DEACTIVATED" as const,
+      data: updated,
+    };
+  });
+}
+
+export async function activateComponent(componentId: string) {
+  return prisma.$transaction(async (tx) => {
+    const component = await tx.component.findUnique({
+      where: { id: componentId },
+      select: {
+        id: true,
+        isActive: true,
+      },
+    });
+
+    if (!component) {
+      return { outcome: "NOT_FOUND" as const };
+    }
+
+    if (component.isActive) {
+      return { outcome: "ALREADY_ACTIVE" as const };
+    }
+
+    const updated = await tx.component.update({
+      where: { id: componentId },
+      data: { isActive: true },
+    });
+
+    return {
+      outcome: "ACTIVATED" as const,
+      data: updated,
     };
   });
 }

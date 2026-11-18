@@ -2,11 +2,15 @@ import { Router } from "express";
 import { 
     createComponentController, 
     getAllComponentsController, 
-    updateComponentController 
+    updateComponentController,
+    activateComponentController,
+    deactivateComponentController,
+
 } from "./component.controller.js";
 
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { requireRole } from "../../middlewares/requireRole.js";
+import { deactivateComponent } from "./component.service.js";
 
 const router = Router();
 
@@ -27,6 +31,32 @@ router.post(
     ),
     createComponentController,
 );
+
+// PATCH /api/components/:componentId/deactivate
+router.patch(
+    "/:componentId/deactivate",
+    requireRole(
+        "SUPER_ADMIN",
+        "ADMIN",
+        "CLUB_PRESIDENT",
+        "VICE_PRESIDENT",
+    ),
+    deactivateComponentController,
+    
+)
+
+// PATCH /api/components/:componentId/activate
+router.patch(
+    "/:componentId/activate",
+    requireRole(
+        "SUPER_ADMIN",
+        "ADMIN",
+        "CLUB_PRESIDENT",
+        "VICE_PRESIDENT",
+    ),
+    activateComponentController,
+    
+)
 
 // PATCH /api/components/:componentId
 router.patch(

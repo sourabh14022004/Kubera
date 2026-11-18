@@ -4,9 +4,12 @@ import {
     createComponent,
     getAllComponents,
     updateComponent,
+    activateComponent,
     type ComponentStatus,
     type ComponentStockStatus,
+    deactivateComponent,
 } from "./component.service.js";
+import { json } from "node:stream/consumers";
 
 const UUID_REGEX =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -402,238 +405,342 @@ export async function getAllComponentsController(
 
 // PATCH /api/components/:componentId
 export async function updateComponentController(
-  req: Request<{ componentId: string }>,
-  res: Response,
+    req: Request<{ componentId: string }>,
+    res: Response,
 ): Promise<void> {
-  try {
-    const { componentId } = req.params;
+    try {
+        const { componentId } = req.params;
 
-    if (!UUID_REGEX.test(componentId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid component ID.",
-      });
-      return;
-    }
+        if (!UUID_REGEX.test(componentId)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid component ID.",
+            });
+            return;
+        }
 
-    const body = req.body;
+        const body = req.body;
 
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid request body.",
-      });
-      return;
-    }
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid request body.",
+            });
+            return;
+        }
 
-    const allowedFields = [
-      "code",
-      "name",
-      "description",
-      "categoryId",
-      "unit",
-      "minimumStock",
-      "storageDrawerId",
-    ];
+        const allowedFields = [
+            "code",
+            "name",
+            "description",
+            "categoryId",
+            "unit",
+            "minimumStock",
+            "storageDrawerId",
+        ];
 
-    const unsupportedFields = Object.keys(body).filter(
-      (key) => !allowedFields.includes(key),
-    );
+        const unsupportedFields = Object.keys(body).filter(
+            (key) => !allowedFields.includes(key),
+        );
 
-    if (unsupportedFields.length > 0) {
-      res.status(400).json({
-        success: false,
-        message: "Unsupported fields in request body.",
-        fields: unsupportedFields,
-      });
-      return;
-    }
+        if (unsupportedFields.length > 0) {
+            res.status(400).json({
+                success: false,
+                message: "Unsupported fields in request body.",
+                fields: unsupportedFields,
+            });
+            return;
+        }
 
-    const {
-      code,
-      name,
-      description,
-      categoryId,
-      unit,
-      minimumStock,
-      storageDrawerId,
-    } = body;
+        const {
+            code,
+            name,
+            description,
+            categoryId,
+            unit,
+            minimumStock,
+            storageDrawerId,
+        } = body;
 
-    if (
-      Object.keys(body).length === 0
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Provide at least one field to update.",
-      });
-      return;
-    }
+        if (
+            Object.keys(body).length === 0
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Provide at least one field to update.",
+            });
+            return;
+        }
 
-    if (
-      code !== undefined &&
-      (typeof code !== "string" || !code.trim())
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Component code must be a non-empty string.",
-      });
-      return;
-    }
+        if (
+            code !== undefined &&
+            (typeof code !== "string" || !code.trim())
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Component code must be a non-empty string.",
+            });
+            return;
+        }
 
-    if (
-      name !== undefined &&
-      (typeof name !== "string" || !name.trim())
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Component name must be a non-empty string.",
-      });
-      return;
-    }
+        if (
+            name !== undefined &&
+            (typeof name !== "string" || !name.trim())
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Component name must be a non-empty string.",
+            });
+            return;
+        }
 
-    if (
-      description !== undefined &&
-      description !== null &&
-      typeof description !== "string"
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Description must be a string or null.",
-      });
-      return;
-    }
+        if (
+            description !== undefined &&
+            description !== null &&
+            typeof description !== "string"
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Description must be a string or null.",
+            });
+            return;
+        }
 
-    if (
-      categoryId !== undefined &&
-      (typeof categoryId !== "string" ||
-        !UUID_REGEX.test(categoryId))
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid category ID.",
-      });
-      return;
-    }
+        if (
+            categoryId !== undefined &&
+            (typeof categoryId !== "string" ||
+                !UUID_REGEX.test(categoryId))
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid category ID.",
+            });
+            return;
+        }
 
-    if (
-      unit !== undefined &&
-      (typeof unit !== "string" || !unit.trim())
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Unit must be a non-empty string.",
-      });
-      return;
-    }
+        if (
+            unit !== undefined &&
+            (typeof unit !== "string" || !unit.trim())
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Unit must be a non-empty string.",
+            });
+            return;
+        }
 
-    if (
-      minimumStock !== undefined &&
-      (!Number.isInteger(minimumStock) || minimumStock < 0)
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Minimum stock must be a non-negative integer.",
-      });
-      return;
-    }
+        if (
+            minimumStock !== undefined &&
+            (!Number.isInteger(minimumStock) || minimumStock < 0)
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Minimum stock must be a non-negative integer.",
+            });
+            return;
+        }
 
-    if (
-      storageDrawerId !== undefined &&
-      storageDrawerId !== null &&
-      (typeof storageDrawerId !== "string" ||
-        !UUID_REGEX.test(storageDrawerId))
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid storage drawer ID.",
-      });
-      return;
-    }
+        if (
+            storageDrawerId !== undefined &&
+            storageDrawerId !== null &&
+            (typeof storageDrawerId !== "string" ||
+                !UUID_REGEX.test(storageDrawerId))
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid storage drawer ID.",
+            });
+            return;
+        }
 
-    const result = await updateComponent(componentId, {
-      code,
-      name,
-      description,
-      categoryId,
-      unit,
-      minimumStock,
-      storageDrawerId,
-    });
-
-    switch (result.outcome) {
-      case "NOT_FOUND":
-        res.status(404).json({
-          success: false,
-          message: "Component not found.",
+        const result = await updateComponent(componentId, {
+            code,
+            name,
+            description,
+            categoryId,
+            unit,
+            minimumStock,
+            storageDrawerId,
         });
-        return;
 
-      case "CATEGORY_NOT_FOUND":
-        res.status(404).json({
-          success: false,
-          message: "Category not found.",
-        });
-        return;
+        switch (result.outcome) {
+            case "NOT_FOUND":
+                res.status(404).json({
+                    success: false,
+                    message: "Component not found.",
+                });
+                return;
 
-      case "CATEGORY_INACTIVE":
-        res.status(409).json({
-          success: false,
-          message: "Cannot assign an inactive category.",
-        });
-        return;
+            case "CATEGORY_NOT_FOUND":
+                res.status(404).json({
+                    success: false,
+                    message: "Category not found.",
+                });
+                return;
 
-      case "DRAWER_NOT_FOUND":
-        res.status(404).json({
-          success: false,
-          message: "Storage drawer not found.",
-        });
-        return;
+            case "CATEGORY_INACTIVE":
+                res.status(409).json({
+                    success: false,
+                    message: "Cannot assign an inactive category.",
+                });
+                return;
 
-      case "RACK_RETIRED":
-        res.status(409).json({
-          success: false,
-          message: "Cannot assign a component to a retired rack.",
-        });
-        return;
+            case "DRAWER_NOT_FOUND":
+                res.status(404).json({
+                    success: false,
+                    message: "Storage drawer not found.",
+                });
+                return;
 
-      case "UPDATED":
-        res.status(200).json({
-          success: true,
-          message: "Component updated successfully.",
-          data: result.data,
+            case "RACK_RETIRED":
+                res.status(409).json({
+                    success: false,
+                    message: "Cannot assign a component to a retired rack.",
+                });
+                return;
+
+            case "UPDATED":
+                res.status(200).json({
+                    success: true,
+                    message: "Component updated successfully.",
+                    data: result.data,
+                });
+                return;
+        }
+    } catch (error) {
+        if (hasPrismaErrorCode(error, "P2002")) {
+            res.status(409).json({
+                success: false,
+                message: "A component with this code already exists.",
+            });
+            return;
+        }
+
+        if (hasPrismaErrorCode(error, "P2003")) {
+            res.status(409).json({
+                success: false,
+                message: "A referenced record no longer exists.",
+            });
+            return;
+        }
+
+        if (hasPrismaErrorCode(error, "P2025")) {
+            res.status(404).json({
+                success: false,
+                message: "Component not found.",
+            });
+            return;
+        }
+
+        console.error("Update component error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
         });
-        return;
     }
-  } catch (error) {
-    if (hasPrismaErrorCode(error, "P2002")) {
-      res.status(409).json({
-        success: false,
-        message: "A component with this code already exists.",
-      });
-      return;
+}
+
+// PATCH /api/components/:componentId/deactivate
+export async function deactivateComponentController(
+    req: Request<{ componentId: string }>,
+    res: Response,
+): Promise<void> {
+    try {
+        const { componentId } = req.params;
+
+        if (!UUID_REGEX.test(componentId)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid component ID."
+            })
+            return;
+        }
+
+        const result = await deactivateComponent(componentId);
+
+        switch (result.outcome) {
+            case "NOT_FOUND":
+                res.status(404).json({
+                    success: false,
+                    message: "Component not found."
+                })
+                return;
+
+            case "ALREADY_INACTIVE":
+                res.status(409).json({
+                    success: false,
+                    message: "Component is already inactive.."
+                })
+                return;
+
+            case "HAS_OUTSTANDING_LOANS":
+                res.status(409).json({
+                    success: false,
+                    message: "Component has outstanding loans and cannot be deactivated.",
+                    outstandingLoanQuantity: result.outstandingLoanQuantity,
+                    checkedOutAssetCount: result.checkedOutAssetCount,
+                })
+                return;
+
+            case "DEACTIVATED":
+                res.status(200).json({
+                    success: true,
+                    message: "Component deactivated successfully.",
+                    data: result.data,
+                })
+                return;
+        }
+    } catch (error) {
+        console.log("Deactivate component error:", error)
     }
+}
 
-    if (hasPrismaErrorCode(error, "P2003")) {
-      res.status(409).json({
-        success: false,
-        message: "A referenced record no longer exists.",
-      });
-      return;
+// PATCH /api/componets/:componentId/activate
+export async function activateComponentController(
+    req: Request<{ componentId: string }>,
+    res: Response,
+): Promise<void> {
+    try {
+        const { componentId } = req.params;
+
+        if (!UUID_REGEX.test(componentId)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid component Id.."
+            });
+            return;
+        }
+        const result = await activateComponent(componentId);
+
+        switch (result.outcome) {
+            case "NOT_FOUND":
+                res.status(404).json({
+                    success: false,
+                    message: "Component not Found.."
+                })
+                return;
+            case "ALREADY_ACTIVE":
+                res.status(409).json({
+                    success: false,
+                    message: "Component is already active.",
+                })
+                return;
+            case "ACTIVATED":
+                res.status(200).json({
+                    success: true,
+                    message: "Component activated successfully.",
+                    data: result.data,
+                })
+                return;
+        }
+    } catch (error) {
+        console.log("Activate component errror:", error)
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
+        })
+
     }
-
-    if (hasPrismaErrorCode(error, "P2025")) {
-      res.status(404).json({
-        success: false,
-        message: "Component not found.",
-      });
-      return;
-    }
-
-    console.error("Update component error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
 }
