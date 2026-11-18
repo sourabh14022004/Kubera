@@ -130,6 +130,7 @@ export type ComponentStockStatus =
     | "LOW_STOCK"
     | "OUT_OF_STOCK"
     | "IN_STOCK";
+
 interface GetComponentsInput {
     search?: string;
     categoryId?: string;
@@ -275,4 +276,108 @@ export async function getAllComponents(
             totalPages: Math.ceil(total / input.limit),
         },
     };
+}
+
+interface UpdateComponentInput {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  categoryId?: string;
+  unit?: string;
+  minimumStock?: number;
+  storageDrawerId?: string | null;
+}
+
+export async function updateComponent(
+  componentId: string,
+  input: UpdateComponentInput,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.component.findUnique({
+      where: { id: componentId },
+      select: {
+        id: true,
+        categoryId: true,
+        storageDrawerId: true,
+      },
+    });
+
+    if (!existing) {
+      return { outcome: "NOT_FOUND" as const };
+    }
+
+    // Validate a changed category.
+    if (
+      input.categoryId !== undefined &&
+      input.categoryId !== existing.categoryId
+    ) {
+      const category = await tx.componentCategory.findUnique({
+        where: { id: input.categoryId },
+        select: { isActive: true },
+      });
+
+      if (!category) {
+        return { outcome: "CATEGORY_NOT_FOUND" as const };
+      }
+
+      if (!category.isActive) {
+        return { outcome: "CATEGORY_INACTIVE" as const };
+      }
+    }
+
+    // Validate a changed storage drawer.
+    if (
+      input.storageDrawerId !== undefined &&
+      input.storageDrawerId !== existing.storageDrawerId &&
+      input.storageDrawerId !== null
+    ) {
+      const drawer = await tx.storageDrawer.findUnique({
+        where: { id: input.storageDrawerId },
+        select: {
+          rack: {
+            select: { status: true },
+          },
+        },
+      });
+
+      if (!drawer) {
+        return { outcome: "DRAWER_NOT_FOUND" as const };
+      }
+
+      if (drawer.rack.status !== StorageRackStatus.ACTIVE) {
+        return { outcome: "RACK_RETIRED" as const };
+      }
+    }
+
+    const component = await tx.component.update({
+      where: { id: componentId },
+      data: {
+        ...(input.code !== undefined && { code: input.code.trim() }),
+        ...(input.name !== undefined && { name: input.name.trim() }),
+        ...(input.description !== undefined && {
+          description: input.description?.trim() || null,
+        }),
+        ...(input.categoryId !== undefined && {
+          categoryId: input.categoryId,
+        }),
+        ...(input.unit !== undefined && { unit: input.unit.trim() }),
+        ...(input.minimumStock !== undefined && {
+          minimumStock: input.minimumStock,
+        }),
+        ...(input.storageDrawerId !== undefined && {
+          storageDrawerId: input.storageDrawerId,
+        }),
+      },
+      include: {
+        category: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    return {
+      outcome: "UPDATED" as const,
+      data: component,
+    };
+  });
 }

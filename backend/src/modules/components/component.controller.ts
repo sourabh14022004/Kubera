@@ -3,6 +3,7 @@ import { TrackingType } from "../../generated/prisma/client.js";
 import {
     createComponent,
     getAllComponents,
+    updateComponent,
     type ComponentStatus,
     type ComponentStockStatus,
 } from "./component.service.js";
@@ -397,4 +398,242 @@ export async function getAllComponentsController(
         });
     }
 
+}
+
+// PATCH /api/components/:componentId
+export async function updateComponentController(
+  req: Request<{ componentId: string }>,
+  res: Response,
+): Promise<void> {
+  try {
+    const { componentId } = req.params;
+
+    if (!UUID_REGEX.test(componentId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid component ID.",
+      });
+      return;
+    }
+
+    const body = req.body;
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid request body.",
+      });
+      return;
+    }
+
+    const allowedFields = [
+      "code",
+      "name",
+      "description",
+      "categoryId",
+      "unit",
+      "minimumStock",
+      "storageDrawerId",
+    ];
+
+    const unsupportedFields = Object.keys(body).filter(
+      (key) => !allowedFields.includes(key),
+    );
+
+    if (unsupportedFields.length > 0) {
+      res.status(400).json({
+        success: false,
+        message: "Unsupported fields in request body.",
+        fields: unsupportedFields,
+      });
+      return;
+    }
+
+    const {
+      code,
+      name,
+      description,
+      categoryId,
+      unit,
+      minimumStock,
+      storageDrawerId,
+    } = body;
+
+    if (
+      Object.keys(body).length === 0
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Provide at least one field to update.",
+      });
+      return;
+    }
+
+    if (
+      code !== undefined &&
+      (typeof code !== "string" || !code.trim())
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Component code must be a non-empty string.",
+      });
+      return;
+    }
+
+    if (
+      name !== undefined &&
+      (typeof name !== "string" || !name.trim())
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Component name must be a non-empty string.",
+      });
+      return;
+    }
+
+    if (
+      description !== undefined &&
+      description !== null &&
+      typeof description !== "string"
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Description must be a string or null.",
+      });
+      return;
+    }
+
+    if (
+      categoryId !== undefined &&
+      (typeof categoryId !== "string" ||
+        !UUID_REGEX.test(categoryId))
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid category ID.",
+      });
+      return;
+    }
+
+    if (
+      unit !== undefined &&
+      (typeof unit !== "string" || !unit.trim())
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Unit must be a non-empty string.",
+      });
+      return;
+    }
+
+    if (
+      minimumStock !== undefined &&
+      (!Number.isInteger(minimumStock) || minimumStock < 0)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Minimum stock must be a non-negative integer.",
+      });
+      return;
+    }
+
+    if (
+      storageDrawerId !== undefined &&
+      storageDrawerId !== null &&
+      (typeof storageDrawerId !== "string" ||
+        !UUID_REGEX.test(storageDrawerId))
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid storage drawer ID.",
+      });
+      return;
+    }
+
+    const result = await updateComponent(componentId, {
+      code,
+      name,
+      description,
+      categoryId,
+      unit,
+      minimumStock,
+      storageDrawerId,
+    });
+
+    switch (result.outcome) {
+      case "NOT_FOUND":
+        res.status(404).json({
+          success: false,
+          message: "Component not found.",
+        });
+        return;
+
+      case "CATEGORY_NOT_FOUND":
+        res.status(404).json({
+          success: false,
+          message: "Category not found.",
+        });
+        return;
+
+      case "CATEGORY_INACTIVE":
+        res.status(409).json({
+          success: false,
+          message: "Cannot assign an inactive category.",
+        });
+        return;
+
+      case "DRAWER_NOT_FOUND":
+        res.status(404).json({
+          success: false,
+          message: "Storage drawer not found.",
+        });
+        return;
+
+      case "RACK_RETIRED":
+        res.status(409).json({
+          success: false,
+          message: "Cannot assign a component to a retired rack.",
+        });
+        return;
+
+      case "UPDATED":
+        res.status(200).json({
+          success: true,
+          message: "Component updated successfully.",
+          data: result.data,
+        });
+        return;
+    }
+  } catch (error) {
+    if (hasPrismaErrorCode(error, "P2002")) {
+      res.status(409).json({
+        success: false,
+        message: "A component with this code already exists.",
+      });
+      return;
+    }
+
+    if (hasPrismaErrorCode(error, "P2003")) {
+      res.status(409).json({
+        success: false,
+        message: "A referenced record no longer exists.",
+      });
+      return;
+    }
+
+    if (hasPrismaErrorCode(error, "P2025")) {
+      res.status(404).json({
+        success: false,
+        message: "Component not found.",
+      });
+      return;
+    }
+
+    console.error("Update component error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
 }

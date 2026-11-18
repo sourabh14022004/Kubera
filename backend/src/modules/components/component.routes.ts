@@ -1,5 +1,9 @@
 import { Router } from "express";
-import { createComponentController, getAllComponentsController } from "./component.controller.js";
+import { 
+    createComponentController, 
+    getAllComponentsController, 
+    updateComponentController 
+} from "./component.controller.js";
 
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { requireRole } from "../../middlewares/requireRole.js";
@@ -22,6 +26,18 @@ router.post(
         "VICE_PRESIDENT",
     ),
     createComponentController,
+);
+
+// PATCH /api/components/:componentId
+router.patch(
+    "/:componentId",
+    requireRole(
+        "SUPER_ADMIN",
+        "ADMIN",
+        "CLUB_PRESIDENT",
+        "VICE_PRESIDENT",
+    ),
+    updateComponentController,
 );
 
 export default router;
