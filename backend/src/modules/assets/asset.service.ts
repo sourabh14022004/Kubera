@@ -551,3 +551,116 @@ export async function getAllLoans(input: GetAllLoansInput = {}) {
         },
     };
 }
+
+export async function getLoanSummary() {
+    const loans = await prisma.inventoryLoan.findMany({
+        select: {
+            quantityBorrowed: true,
+            quantityReturned: true,
+            quantityWrittenOff: true,
+            dueAt: true,
+        }
+    })
+
+    const now = new Date();
+
+    const summary = {
+        totalLoans: loans.length,
+        outstandingLoans: 0,
+        overdueLoans: 0,
+        closedLoans: 0,
+        totalOutstandingQuantity: 0,
+    }
+
+    for (const loan of loans) {
+        const outstandingLoanQuantity = Math.max(
+            0,
+            loan.quantityBorrowed - loan.quantityReturned - loan.quantityWrittenOff,
+        )
+
+        if (outstandingLoanQuantity === 0) {
+            summary.closedLoans++;
+            continue;
+        }
+
+        summary.outstandingLoans++;
+        summary.totalOutstandingQuantity += outstandingLoanQuantity;
+
+        if (loan.dueAt && loan.dueAt < now) {
+            summary.overdueLoans++;
+        }
+    }
+    return summary;
+}
+
+export async function getMemberLoanSummary(memberId: string) {
+    // 1. Verify member exists
+    const member = await prisma.user.findUnique({
+        where: { id: memberId },
+        select: {
+            id: true,
+            name: true,
+            email: true,
+        },
+    });
+
+    if (!member) {
+        return null;
+    }
+
+    // 2. Retrieve this member's loans
+    const loans = await prisma.inventoryLoan.findMany({
+        where: { memberId },
+        select: {
+            quantityBorrowed: true,
+            quantityReturned: true,
+            quantityWrittenOff: true,
+            dueAt: true,
+        },
+    });
+
+    // 3. Initialize summary
+    const summary = {
+        totalLoans: loans.length,
+        outstandingLoans: 0,
+        overdueLoans: 0,
+        closedLoans: 0,
+        totalBorrowedQuantity: 0,
+        totalReturnedQuantity: 0,
+        totalWrittenOffQuantity: 0,
+        totalOutstandingQuantity: 0,
+    };
+
+    const now = new Date();
+
+    // 4. Calculate member statistics
+    for (const loan of loans) {
+        const outstandingQuantity = Math.max(
+            0,
+            loan.quantityBorrowed -
+            loan.quantityReturned -
+            loan.quantityWrittenOff,
+        );
+
+        summary.totalBorrowedQuantity += loan.quantityBorrowed;
+        summary.totalReturnedQuantity += loan.quantityReturned;
+        summary.totalWrittenOffQuantity += loan.quantityWrittenOff;
+
+        if (outstandingQuantity === 0) {
+            summary.closedLoans++;
+            continue;
+        }
+
+        summary.outstandingLoans++;
+        summary.totalOutstandingQuantity += outstandingQuantity;
+
+        if (loan.dueAt && loan.dueAt < now) {
+            summary.overdueLoans++;
+        }
+    }
+
+    return {
+        member,
+        summary,
+    };
+}

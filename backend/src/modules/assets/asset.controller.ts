@@ -1,12 +1,15 @@
 import { Request, Response } from "express";
-import { 
-    AssetListStatus, 
-    checkoutAsset, 
-    getAllAssets, 
-    getAllLoans, 
-    type LoanListStatus, 
-    registerAsset, 
-    returnAsset } from "./asset.service.js";
+import {
+    AssetListStatus,
+    checkoutAsset,
+    getAllAssets,
+    getAllLoans,
+    getLoanSummary,
+    getMemberLoanSummary,
+    type LoanListStatus,
+    registerAsset,
+    returnAsset
+} from "./asset.service.js";
 import { AssetStatus } from "../../generated/prisma/enums.js";
 
 
@@ -397,201 +400,341 @@ export async function checkoutAssetController(
 }
 
 export async function returnAssetController(
-  req: Request<{ assetId: string }>,
-  res: Response,
+    req: Request<{ assetId: string }>,
+    res: Response,
 ): Promise<void> {
-  try {
-    // 1. Validate asset ID
-    const { assetId } = req.params;
+    try {
+        // 1. Validate asset ID
+        const { assetId } = req.params;
 
-    if (!UUID_REGEX.test(assetId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid asset ID.",
-      });
-      return;
-    }
+        if (!UUID_REGEX.test(assetId)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid asset ID.",
+            });
+            return;
+        }
 
-    // 2. Validate optional request body
-    const body = req.body ?? {};
+        // 2. Validate optional request body
+        const body = req.body ?? {};
 
-    if (
-      typeof body !== "object" ||
-      body === null ||
-      Array.isArray(body)
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid request body.",
-      });
-      return;
-    }
+        if (
+            typeof body !== "object" ||
+            body === null ||
+            Array.isArray(body)
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid request body.",
+            });
+            return;
+        }
 
-    const { note } = body;
+        const { note } = body;
 
-    if (note !== undefined && typeof note !== "string") {
-      res.status(400).json({
-        success: false,
-        message: "Note must be a string.",
-      });
-      return;
-    }
+        if (note !== undefined && typeof note !== "string") {
+            res.status(400).json({
+                success: false,
+                message: "Note must be a string.",
+            });
+            return;
+        }
 
-    // 3. Get authenticated user
-    const returnedById = res.locals.KuberaUser.id;
+        // 3. Get authenticated user
+        const returnedById = res.locals.KuberaUser.id;
 
-    // 4. Execute return operation
-    const result = await returnAsset({
-      assetId,
-      returnedById,
-      note,
-    });
-
-    // 5. Handle service outcomes
-    switch (result.outcome) {
-      case "ASSET_NOT_FOUND":
-        res.status(404).json({
-          success: false,
-          message: "Asset not found.",
+        // 4. Execute return operation
+        const result = await returnAsset({
+            assetId,
+            returnedById,
+            note,
         });
-        return;
 
-      case "ASSET_NOT_CHECKED_OUT":
-        res.status(409).json({
-          success: false,
-          message: "Asset is not currently checked out.",
-        });
-        return;
+        // 5. Handle service outcomes
+        switch (result.outcome) {
+            case "ASSET_NOT_FOUND":
+                res.status(404).json({
+                    success: false,
+                    message: "Asset not found.",
+                });
+                return;
 
-      case "ACTIVE_LOAN_NOT_FOUND":
-        res.status(409).json({
-          success: false,
-          message: "No outstanding loan was found for this asset.",
-        });
-        return;
+            case "ASSET_NOT_CHECKED_OUT":
+                res.status(409).json({
+                    success: false,
+                    message: "Asset is not currently checked out.",
+                });
+                return;
 
-      case "RETURNED":
-        res.status(200).json({
-          success: true,
-          message: "Asset returned successfully.",
-          data: result.data,
+            case "ACTIVE_LOAN_NOT_FOUND":
+                res.status(409).json({
+                    success: false,
+                    message: "No outstanding loan was found for this asset.",
+                });
+                return;
+
+            case "RETURNED":
+                res.status(200).json({
+                    success: true,
+                    message: "Asset returned successfully.",
+                    data: result.data,
+                });
+                return;
+        }
+    } catch (error) {
+        console.error("Return asset error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
         });
-        return;
     }
-  } catch (error) {
-    console.error("Return asset error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
 }
 
 export async function getAllLoansController(
+    req: Request,
+    res: Response,
+): Promise<void> {
+    try {
+        const {
+            search,
+            memberId,
+            componentId,
+            assetId,
+            status,
+            page,
+            limit,
+        } = req.query;
+
+        // 1. Validate query parameter types
+        const queryValues = [
+            search,
+            memberId,
+            componentId,
+            assetId,
+            status,
+            page,
+            limit,
+        ];
+
+        if (
+            queryValues.some(
+                (value) =>
+                    value !== undefined && typeof value !== "string",
+            )
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Query parameters must be single string values.",
+            });
+            return;
+        }
+
+        // 2. Validate UUID filters
+        for (const id of [memberId, componentId, assetId]) {
+            if (id !== undefined && !UUID_REGEX.test(id as string)) {
+                res.status(400).json({
+                    success: false,
+                    message: "Invalid ID filter.",
+                });
+                return;
+            }
+        }
+
+        // 3. Validate status
+        const selectedStatus = (status as string | undefined) ?? "ALL";
+
+        const allowedStatuses: LoanListStatus[] = [
+            "ALL",
+            "OUTSTANDING",
+            "OVERDUE",
+            "CLOSED",
+        ];
+
+        if (!allowedStatuses.includes(selectedStatus as LoanListStatus)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid loan status.",
+            });
+            return;
+        }
+
+        // 4. Validate pagination
+        const selectedPage = page === undefined ? 1 : Number(page);
+        const selectedLimit = limit === undefined ? 20 : Number(limit);
+
+        if (
+            !Number.isInteger(selectedPage) ||
+            selectedPage < 1 ||
+            !Number.isInteger(selectedLimit) ||
+            selectedLimit < 1 ||
+            selectedLimit > 100
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Page must be positive and limit must be between 1 and 100.",
+            });
+            return;
+        }
+
+        // 5. Retrieve loans
+        const result = await getAllLoans({
+            search: search ? (search as string).trim() : undefined,
+            memberId: memberId as string | undefined,
+            componentId: componentId as string | undefined,
+            assetId: assetId as string | undefined,
+            status: selectedStatus as LoanListStatus,
+            page: selectedPage,
+            limit: selectedLimit,
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Loans retrieved successfully.",
+            ...result,
+        });
+    } catch (error) {
+        console.error("Get all loans error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
+        });
+    }
+}
+
+export async function getMyLoansController(
+    req: Request,
+    res: Response,
+): Promise<void> {
+    try {
+        const { search, status, page, limit } = req.query;
+
+        // 1. Validate query parameter types
+        const queryValues = [search, status, page, limit];
+
+        if (
+            queryValues.some(
+                (value) => value !== undefined && typeof value !== "string",
+            )
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Query parameters must be single string values.",
+            });
+            return;
+        }
+
+        // 2. Validate status
+        const selectedStatus = (status as string | undefined) ?? "ALL";
+
+        const allowedStatuses: LoanListStatus[] = [
+            "ALL",
+            "OUTSTANDING",
+            "OVERDUE",
+            "CLOSED",
+        ];
+
+        if (!allowedStatuses.includes(selectedStatus as LoanListStatus)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid loan status.",
+            });
+            return;
+        }
+
+        // 3. Validate pagination
+        const selectedPage = page === undefined ? 1 : Number(page);
+        const selectedLimit = limit === undefined ? 20 : Number(limit);
+
+        if (
+            !Number.isInteger(selectedPage) ||
+            selectedPage < 1 ||
+            !Number.isInteger(selectedLimit) ||
+            selectedLimit < 1 ||
+            selectedLimit > 100
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Page must be positive and limit must be between 1 and 100.",
+            });
+            return;
+        }
+
+        // 4. Get the authenticated user's internal Kubera ID
+        const memberId = res.locals.KuberaUser.id;
+
+        // 5. Retrieve only this member's loans
+        const result = await getAllLoans({
+            memberId,
+            search: search ? (search as string).trim() : undefined,
+            status: selectedStatus as LoanListStatus,
+            page: selectedPage,
+            limit: selectedLimit,
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Your borrowing history retrieved successfully.",
+            ...result,
+        });
+    } catch (error) {
+        console.error("Get my loans error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
+        });
+    }
+}
+
+export async function getLoanSummaryController(
+    req: Request,
+    res: Response,
+): Promise<void> {
+    try {
+        const summary = await getLoanSummary();
+
+        res.status(200).json({
+            success: true,
+            message: "Loan summary retrieved successfully.",
+            data: summary,
+        })
+    } catch (error) {
+        console.error("Get loan summaty error:", error)
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
+        })
+    }
+}
+
+export async function getMemberLoanSummaryController(
   req: Request,
   res: Response,
 ): Promise<void> {
   try {
-    const {
-      search,
-      memberId,
-      componentId,
-      assetId,
-      status,
-      page,
-      limit,
-    } = req.query;
+    // Get the authenticated member's internal Kubera ID
+    const memberId = res.locals.KuberaUser.id;
 
-    // 1. Validate query parameter types
-    const queryValues = [
-      search,
-      memberId,
-      componentId,
-      assetId,
-      status,
-      page,
-      limit,
-    ];
+    const result = await getMemberLoanSummary(memberId);
 
-    if (
-      queryValues.some(
-        (value) =>
-          value !== undefined && typeof value !== "string",
-      )
-    ) {
-      res.status(400).json({
+    if (!result) {
+      res.status(404).json({
         success: false,
-        message: "Query parameters must be single string values.",
+        message: "Member not found.",
       });
       return;
     }
-
-    // 2. Validate UUID filters
-    for (const id of [memberId, componentId, assetId]) {
-      if (id !== undefined && !UUID_REGEX.test(id as string)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid ID filter.",
-        });
-        return;
-      }
-    }
-
-    // 3. Validate status
-    const selectedStatus = (status as string | undefined) ?? "ALL";
-
-    const allowedStatuses: LoanListStatus[] = [
-      "ALL",
-      "OUTSTANDING",
-      "OVERDUE",
-      "CLOSED",
-    ];
-
-    if (!allowedStatuses.includes(selectedStatus as LoanListStatus)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid loan status.",
-      });
-      return;
-    }
-
-    // 4. Validate pagination
-    const selectedPage = page === undefined ? 1 : Number(page);
-    const selectedLimit = limit === undefined ? 20 : Number(limit);
-
-    if (
-      !Number.isInteger(selectedPage) ||
-      selectedPage < 1 ||
-      !Number.isInteger(selectedLimit) ||
-      selectedLimit < 1 ||
-      selectedLimit > 100
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Page must be positive and limit must be between 1 and 100.",
-      });
-      return;
-    }
-
-    // 5. Retrieve loans
-    const result = await getAllLoans({
-      search: search ? (search as string).trim() : undefined,
-      memberId: memberId as string | undefined,
-      componentId: componentId as string | undefined,
-      assetId: assetId as string | undefined,
-      status: selectedStatus as LoanListStatus,
-      page: selectedPage,
-      limit: selectedLimit,
-    });
 
     res.status(200).json({
       success: true,
-      message: "Loans retrieved successfully.",
-      ...result,
+      message: "Member loan summary retrieved successfully.",
+      data: result,
     });
   } catch (error) {
-    console.error("Get all loans error:", error);
+    console.error("Get member loan summary error:", error);
 
     res.status(500).json({
       success: false,
