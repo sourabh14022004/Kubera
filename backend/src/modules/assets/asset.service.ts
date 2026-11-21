@@ -283,97 +283,271 @@ export async function checkoutAsset(input: CheckoutAssetInput) {
 }
 
 interface ReturnAssetInput {
-  assetId: string;
-  returnedById: string;
-  note?: string;
+    assetId: string;
+    returnedById: string;
+    note?: string;
 }
 
 export async function returnAsset(input: ReturnAssetInput) {
-  return prisma.$transaction(async (tx) => {
-    // 1. Find the asset
-    const asset = await tx.asset.findUnique({
-      where: { id: input.assetId },
-      select: {
-        id: true,
-        assetTag: true,
-        status: true,
-      },
+    return prisma.$transaction(async (tx) => {
+        // 1. Find the asset
+        const asset = await tx.asset.findUnique({
+            where: { id: input.assetId },
+            select: {
+                id: true,
+                assetTag: true,
+                status: true,
+            },
+        });
+
+        if (!asset) {
+            return { outcome: "ASSET_NOT_FOUND" as const };
+        }
+
+        if (asset.status !== AssetStatus.CHECKED_OUT) {
+            return { outcome: "ASSET_NOT_CHECKED_OUT" as const };
+        }
+
+        // 2. Find the outstanding loan for this asset
+        const loans = await tx.inventoryLoan.findMany({
+            where: { assetId: asset.id },
+            orderBy: { checkedOutAt: "desc" },
+        });
+
+        const activeLoan = loans.find(
+            (loan) =>
+                loan.quantityBorrowed -
+                loan.quantityReturned -
+                loan.quantityWrittenOff >
+                0,
+        );
+
+        if (!activeLoan) {
+            return { outcome: "ACTIVE_LOAN_NOT_FOUND" as const };
+        }
+
+        // 3. Atomically claim the checked-out asset for return
+        const updated = await tx.asset.updateMany({
+            where: {
+                id: asset.id,
+                status: AssetStatus.CHECKED_OUT,
+            },
+            data: {
+                status: AssetStatus.AVAILABLE,
+                checkedOutToId: null,
+                checkedOutAt: null,
+            },
+        });
+
+        if (updated.count === 0) {
+            return { outcome: "ASSET_NOT_CHECKED_OUT" as const };
+        }
+
+        // 4. Update the loan
+        const loan = await tx.inventoryLoan.update({
+            where: { id: activeLoan.id },
+            data: {
+                quantityReturned: {
+                    increment: 1,
+                },
+            },
+        });
+
+        // 5. Record the return movement
+        await tx.inventoryMovement.create({
+            data: {
+                componentId: activeLoan.componentId,
+                assetId: asset.id,
+                movementType: InventoryMovementType.RETURN,
+                quantityChange: 1,
+                performedById: input.returnedById,
+                memberId: activeLoan.memberId,
+                loanId: activeLoan.id,
+                note: input.note?.trim() || "Asset returned",
+            },
+        });
+
+        return {
+            outcome: "RETURNED" as const,
+            data: {
+                assetId: asset.id,
+                assetTag: asset.assetTag,
+                loan,
+            },
+        };
     });
+}
 
-    if (!asset) {
-      return { outcome: "ASSET_NOT_FOUND" as const };
-    }
+// Loan Management
 
-    if (asset.status !== AssetStatus.CHECKED_OUT) {
-      return { outcome: "ASSET_NOT_CHECKED_OUT" as const };
-    }
+export type LoanListStatus =
+    | "ALL"
+    | "OUTSTANDING"
+    | "OVERDUE"
+    | "CLOSED";
 
-    // 2. Find the outstanding loan for this asset
-    const loans = await tx.inventoryLoan.findMany({
-      where: { assetId: asset.id },
-      orderBy: { checkedOutAt: "desc" },
-    });
+interface GetAllLoansInput {
+    search?: string;
+    memberId?: string;
+    componentId?: string;
+    assetId?: string;
+    status?: LoanListStatus;
+    page?: number;
+    limit?: number;
+}
 
-    const activeLoan = loans.find(
-      (loan) =>
-        loan.quantityBorrowed -
-          loan.quantityReturned -
-          loan.quantityWrittenOff >
-        0,
-    );
+export async function getAllLoans(input: GetAllLoansInput = {}) {
+    const {
+        search,
+        memberId,
+        componentId,
+        assetId,
+        status = "ALL",
+        page = 1,
+        limit = 20,
+    } = input;
 
-    if (!activeLoan) {
-      return { outcome: "ACTIVE_LOAN_NOT_FOUND" as const };
-    }
+    const where: Prisma.InventoryLoanWhereInput = {
+        ...(memberId && { memberId }),
+        ...(componentId && { componentId }),
+        ...(assetId && { assetId }),
 
-    // 3. Atomically claim the checked-out asset for return
-    const updated = await tx.asset.updateMany({
-      where: {
-        id: asset.id,
-        status: AssetStatus.CHECKED_OUT,
-      },
-      data: {
-        status: AssetStatus.AVAILABLE,
-        checkedOutToId: null,
-        checkedOutAt: null,
-      },
-    });
+        ...(search && {
+            OR: [
+                {
+                    member: {
+                        is: {
+                            name: {
+                                contains: search,
+                                mode: "insensitive",
+                            },
+                        },
+                    },
+                },
+                {
+                    member: {
+                        is: {
+                            email: {
+                                contains: search,
+                                mode: "insensitive",
+                            },
+                        },
+                    },
+                },
+                {
+                    component: {
+                        is: {
+                            name: {
+                                contains: search,
+                                mode: "insensitive",
+                            },
+                        },
+                    },
+                },
+                {
+                    component: {
+                        is: {
+                            code: {
+                                contains: search,
+                                mode: "insensitive",
+                            },
+                        },
+                    },
+                },
+                {
+                    asset: {
+                        is: {
+                            assetTag: {
+                                contains: search,
+                                mode: "insensitive",
+                            },
+                        },
+                    },
+                },
+            ],
+        }),
+    };
 
-    if (updated.count === 0) {
-      return { outcome: "ASSET_NOT_CHECKED_OUT" as const };
-    }
-
-    // 4. Update the loan
-    const loan = await tx.inventoryLoan.update({
-      where: { id: activeLoan.id },
-      data: {
-        quantityReturned: {
-          increment: 1,
+    // Retrieve matching loans and their related records.
+    const loans = await prisma.inventoryLoan.findMany({
+        where,
+        orderBy: {
+            checkedOutAt: "desc",
         },
-      },
+        include: {
+            member: {
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                },
+            },
+            issuedBy: {
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                },
+            },
+            component: {
+                select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                },
+            },
+            asset: {
+                select: {
+                    id: true,
+                    assetTag: true,
+                    status: true,
+                },
+            },
+        },
     });
 
-    // 5. Record the return movement
-    await tx.inventoryMovement.create({
-      data: {
-        componentId: activeLoan.componentId,
-        assetId: asset.id,
-        movementType: InventoryMovementType.RETURN,
-        quantityChange: 1,
-        performedById: input.returnedById,
-        memberId: activeLoan.memberId,
-        loanId: activeLoan.id,
-        note: input.note?.trim() || "Asset returned",
-      },
+    // Calculate each loan's current status.
+    const now = new Date();
+
+    const enrichedLoans = loans.map((loan) => {
+        const outstandingQuantity = Math.max(
+            0,
+            loan.quantityBorrowed -
+            loan.quantityReturned -
+            loan.quantityWrittenOff,
+        );
+
+        const loanStatus: Exclude<LoanListStatus, "ALL"> =
+            outstandingQuantity === 0
+                ? "CLOSED"
+                : loan.dueAt && loan.dueAt < now
+                    ? "OVERDUE"
+                    : "OUTSTANDING";
+
+        return {
+            ...loan,
+            outstandingQuantity,
+            loanStatus,
+        };
     });
+
+    // Apply the calculated status filter.
+    const filteredLoans =
+        status === "ALL"
+            ? enrichedLoans
+            : enrichedLoans.filter((loan) => loan.loanStatus === status);
+
+    // Apply pagination after filtering.
+    const total = filteredLoans.length;
+    const skip = (page - 1) * limit;
 
     return {
-      outcome: "RETURNED" as const,
-      data: {
-        assetId: asset.id,
-        assetTag: asset.assetTag,
-        loan,
-      },
+        data: filteredLoans.slice(skip, skip + limit),
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+        },
     };
-  });
 }
