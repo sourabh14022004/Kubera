@@ -1,4 +1,6 @@
-
+import { useEffect, useState } from "react";
+import { getCurrentAuthProfile } from "../services/auth.api";
+import type { NeonAuthProfile } from "../services/auth.api";
 import {
   Package,
   ArrowLeftRight,
@@ -76,6 +78,43 @@ const lowStockItems = [
 ];
 
 function DashboardPage() {
+
+  const [profile, setProfile] = useState<NeonAuthProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadProfile() {
+      try {
+        const user = await getCurrentAuthProfile();
+
+        if (isActive) {
+          setProfile(user);
+        }
+      } catch (error) {
+        if (isActive) {
+          setProfileError(
+            error instanceof Error
+              ? error.message
+              : "Unable to verify authenticated user.",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setProfileLoading(false);
+        }
+      }
+    }
+
+    void loadProfile();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   return (
     <div className="space-y-8">
       {/* Page heading */}
@@ -92,6 +131,72 @@ function DashboardPage() {
         <span className="w-fit rounded-full bg-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600">
           Demo data
         </span>
+      </section>
+
+      {/* Authenticated user verification */}
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-900">
+              Authentication Status
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Verified through Neon Auth and Kubera API.
+            </p>
+          </div>
+
+          <span
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${profile
+                ? "bg-emerald-50 text-emerald-700"
+                : profileError
+                  ? "bg-red-50 text-red-700"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+          >
+            {profileLoading
+              ? "Checking..."
+              : profile
+                ? "Authenticated"
+                : "Verification failed"}
+          </span>
+        </div>
+
+        {profileLoading && (
+          <p className="mt-4 text-sm text-slate-500">
+            Verifying your identity...
+          </p>
+        )}
+
+        {profile && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Name</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">
+                {profile.name ?? "Not provided"}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Email</p>
+              <p className="mt-1 break-all text-sm font-semibold text-slate-800">
+                {profile.email ?? "Not provided"}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-slate-50 p-3 sm:col-span-2">
+              <p className="text-xs text-slate-500">Neon Auth User ID</p>
+              <p className="mt-1 break-all font-mono text-xs text-slate-700">
+                {profile.id}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {profileError && (
+          <p role="alert" className="mt-4 text-sm text-red-600">
+            {profileError}
+          </p>
+        )}
       </section>
 
       {/* Statistics */}

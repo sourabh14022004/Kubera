@@ -7,6 +7,7 @@ import authRoutes from "./modules/auth/auth.routes.js";
 import storageRoutes from "./modules/storage/storage.routes.js";
 import categoryRoutes from "./modules/components/category.routes.js";
 import componentRoutes from "./modules/components/component.routes.js"
+import assetRoutes from "./modules/assets/asset.routes.js" 
 
 const app = express();
 
@@ -14,11 +15,15 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
 // Category routes
 app.use("/api/components/categories", categoryRoutes);
 
 // Component routes
 app.use("/api/components", componentRoutes);
+
+// Assets routes
+app.use("/api/assets", assetRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {

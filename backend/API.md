@@ -20,10 +20,14 @@ Base URL: `http://localhost:5000`
   - [2. Create Category](#2-create-category)
   - [3. Update Category](#3-update-category)
   - [4. Deactivate Category](#4-deactivate-category)
-  - [5. Delete Category](#5-delete-category)
+  - [5. Activate Category](#5-activate-category)
+  - [6. Delete Category](#6-delete-category)
 - [Components Module](#components-module)
   - [1. Get All Components (Search & Filter)](#1-get-all-components-search--filter)
   - [2. Create Component](#2-create-component)
+  - [3. Update Component](#3-update-component)
+  - [4. Deactivate Component](#4-deactivate-component)
+  - [5. Activate Component](#5-activate-component)
 - [Quick Reference](#quick-reference)
 
 ---
@@ -551,7 +555,43 @@ Soft-deactivate a category (`isActive = false`) without deleting any of its assi
 
 ---
 
-### 5. Delete Category
+### 5. Activate Category
+Re-activate a previously deactivated category (`isActive = true`).
+
+- **URL:** `http://localhost:5000/api/components/categories/:categoryId/activate`
+- **Method:** `PATCH`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Required Roles:** `SUPER_ADMIN`, `ADMIN`, or `CLUB_PRESIDENT`
+- **Route Parameters:**
+  - `categoryId` (UUID, required): Category unique ID.
+- **Example Request:**
+  `PATCH http://localhost:5000/api/components/categories/7b13e921-2a6c-48d4-954f-6d55981907cb/activate`
+- **Response (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "message": "Category activated successfully.",
+    "data": {
+      "id": "7b13e921-2a6c-48d4-954f-6d55981907cb",
+      "name": "Sensors & Modules",
+      "description": "Updated description",
+      "isActive": true,
+      "createdAt": "2026-11-16T08:00:00.000Z",
+      "updatedAt": "2026-11-16T09:00:00.000Z"
+    }
+  }
+  ```
+- **Error Responses:**
+  - `400 Bad Request`: Invalid category ID.
+  - `401 Unauthorized`: Authentication required.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `404 Not Found`: Category not found.
+  - `409 Conflict`: Category is already active (`"Category is already active."`).
+  - `500 Internal Server Error`: Server failure.
+
+---
+
+### 6. Delete Category
 Permanently delete an empty category. Cannot delete if it still has components or is referenced.
 
 - **URL:** `http://localhost:5000/api/components/categories/:categoryId`
@@ -599,6 +639,7 @@ Retrieve a paginated list of components with support for text search, filtering 
   | `categoryId` | string (UUID) | No | - | UUID | Filters components belonging to a specific category. |
   | `storageDrawerId` | string (UUID) | No | - | UUID | Filters components stored in a specific drawer. |
   | `status` | string | No | `ACTIVE` | `ACTIVE`, `INACTIVE`, `ALL` | Filters components by active status. |
+  | `stockStatus` | string | No | - | `LOW_STOCK`, `OUT_OF_STOCK`, `IN_STOCK` | Filters `BULK` tracking components by stock availability level. |
   | `page` | number | No | `1` | Integer >= 1 | Page number for pagination. |
   | `limit` | number | No | `20` | Integer 1 to 100 | Number of components returned per page. |
 
@@ -611,10 +652,16 @@ Retrieve a paginated list of components with support for text search, filtering 
     `GET http://localhost:5000/api/components?trackingType=INDIVIDUAL`
   - Filter by category UUID:
     `GET http://localhost:5000/api/components?categoryId=b7c29241-e6f8-4143-afc5-8fd30f34f9d9`
+  - Filter by stock status (`LOW_STOCK`):
+    `GET http://localhost:5000/api/components?stockStatus=LOW_STOCK`
+  - Filter by stock status (`OUT_OF_STOCK`):
+    `GET http://localhost:5000/api/components?stockStatus=OUT_OF_STOCK`
+  - Filter by stock status (`IN_STOCK`):
+    `GET http://localhost:5000/api/components?stockStatus=IN_STOCK`
   - Custom pagination:
     `GET http://localhost:5000/api/components?page=1&limit=10`
   - Combined search, filter & pagination:
-    `GET http://localhost:5000/api/components?search=resistor&trackingType=BULK&page=1&limit=10`
+    `GET http://localhost:5000/api/components?search=resistor&trackingType=BULK&stockStatus=LOW_STOCK&page=1&limit=10`
 
 - **Response (`200 OK`):**
   ```json
@@ -671,6 +718,7 @@ Retrieve a paginated list of components with support for text search, filtering 
     - `Invalid query parameters.` (array or non-string query parameter values)
     - `Status must be ACTIVE, INACTIVE, or ALL.`
     - `Tracking type must be BULK or INDIVIDUAL.`
+    - `Stock status must be LOW_STOCK, OUT_OF_STOCK, or IN_STOCK.`
     - `Invalid category ID.` (malformed UUID)
     - `Invalid storage drawer ID.` (malformed UUID)
     - `Page must be positive and limit must be between 1 and 100.`
@@ -781,6 +829,192 @@ Register a new component under an active category. Supports both bulk inventory 
 
 ---
 
+### 3. Update Component
+Update an existing component's metadata, category assignment, measurement unit, minimum stock threshold, or assigned storage drawer.
+
+- **URL:** `http://localhost:5000/api/components/:componentId`
+- **Method:** `PATCH`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Required Roles:** `SUPER_ADMIN`, `ADMIN`, `CLUB_PRESIDENT`, or `VICE_PRESIDENT`
+- **Headers:**
+  ```http
+  Content-Type: application/json
+  Authorization: Bearer <token>
+  ```
+- **Route Parameters:**
+  - `componentId` (UUID, required): Unique ID of the component to update.
+- **Request Body Parameters:** (Provide at least one field; extraneous fields are rejected)
+  | Field | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `code` | string | No | Unique component code (non-empty string). |
+  | `name` | string | No | Component name (non-empty string). |
+  | `description` | string \| null | No | Optional description text or `null` to clear. |
+  | `categoryId` | string (UUID) | No | ID of an active category. |
+  | `unit` | string | No | Unit of measurement (non-empty string, e.g. `"pcs"`). |
+  | `minimumStock` | number (integer) | No | Low stock alert threshold (non-negative integer >= 0). |
+  | `storageDrawerId` | string (UUID) \| null | No | Assigned storage drawer ID (must belong to an `ACTIVE` rack), or `null` to unassign drawer. |
+
+- **Example Request:**
+  `PATCH http://localhost:5000/api/components/c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a`
+  ```json
+  {
+    "name": "10k Ohm Resistor 1/2W",
+    "minimumStock": 50,
+    "storageDrawerId": "b3e5cf71-2b81-432d-94c6-e9185a0341e0"
+  }
+  ```
+
+- **Response (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "message": "Component updated successfully.",
+    "data": {
+      "id": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+      "code": "RES-10K-025W",
+      "name": "10k Ohm Resistor 1/2W",
+      "description": "Through-hole resistor pack",
+      "categoryId": "b7c29241-e6f8-4143-afc5-8fd30f34f9d9",
+      "trackingType": "BULK",
+      "quantityAvailable": 100,
+      "unit": "pcs",
+      "minimumStock": 50,
+      "storageDrawerId": "b3e5cf71-2b81-432d-94c6-e9185a0341e0",
+      "isActive": true,
+      "createdAt": "2026-11-17T07:00:00.000Z",
+      "updatedAt": "2026-11-18T14:30:00.000Z",
+      "category": {
+        "id": "b7c29241-e6f8-4143-afc5-8fd30f34f9d9",
+        "name": "Resistors"
+      }
+    }
+  }
+  ```
+
+- **Error Responses:**
+  - `400 Bad Request`:
+    - `Invalid component ID.` (malformed UUID)
+    - `Invalid request body.`
+    - `Unsupported fields in request body.` (includes `fields` array of invalid keys)
+    - `Provide at least one field to update.`
+    - `Component code must be a non-empty string.`
+    - `Component name must be a non-empty string.`
+    - `Description must be a string or null.`
+    - `Invalid category ID.`
+    - `Unit must be a non-empty string.`
+    - `Minimum stock must be a non-negative integer.`
+    - `Invalid storage drawer ID.`
+  - `401 Unauthorized`: Missing or invalid authentication token.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `404 Not Found`:
+    - `Component not found.`
+    - `Category not found.`
+    - `Storage drawer not found.`
+  - `409 Conflict`:
+    - `Cannot assign an inactive category.`
+    - `Cannot assign a component to a retired rack.`
+    - `A component with this code already exists.`
+    - `A referenced record no longer exists.`
+  - `500 Internal Server Error`: Internal server error.
+
+---
+
+### 4. Deactivate Component
+Soft-deactivate a component (`isActive = false`). A component cannot be deactivated if it currently has outstanding active loans or checked-out individual assets.
+
+- **URL:** `http://localhost:5000/api/components/:componentId/deactivate`
+- **Method:** `PATCH`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Required Roles:** `SUPER_ADMIN`, `ADMIN`, `CLUB_PRESIDENT`, or `VICE_PRESIDENT`
+- **Route Parameters:**
+  - `componentId` (UUID, required): Unique ID of the component to deactivate.
+- **Example Request:**
+  `PATCH http://localhost:5000/api/components/c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a/deactivate`
+- **Response (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "message": "Component deactivated successfully.",
+    "data": {
+      "id": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+      "code": "RES-10K-025W",
+      "name": "10k Ohm Resistor 1/4W",
+      "description": "Through-hole resistor pack",
+      "categoryId": "b7c29241-e6f8-4143-afc5-8fd30f34f9d9",
+      "trackingType": "BULK",
+      "quantityAvailable": 100,
+      "unit": "pcs",
+      "minimumStock": 20,
+      "storageDrawerId": "b3e5cf71-2b81-432d-94c6-e9185a0341e0",
+      "isActive": false,
+      "createdAt": "2026-11-17T07:00:00.000Z",
+      "updatedAt": "2026-11-18T15:00:00.000Z"
+    }
+  }
+  ```
+- **Error Responses:**
+  - `400 Bad Request`: `Invalid component ID.`
+  - `401 Unauthorized`: Missing or invalid authentication token.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `404 Not Found`: `Component not found.`
+  - `409 Conflict`:
+    - `Component is already inactive..`
+    - `Component has outstanding loans and cannot be deactivated.` (returns `outstandingLoanQuantity` and `checkedOutAssetCount`)
+      ```json
+      {
+        "success": false,
+        "message": "Component has outstanding loans and cannot be deactivated.",
+        "outstandingLoanQuantity": 2,
+        "checkedOutAssetCount": 1
+      }
+      ```
+  - `500 Internal Server Error`: Server failure.
+
+---
+
+### 5. Activate Component
+Restore an inactive component back to active status (`isActive = true`).
+
+- **URL:** `http://localhost:5000/api/components/:componentId/activate`
+- **Method:** `PATCH`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Required Roles:** `SUPER_ADMIN`, `ADMIN`, `CLUB_PRESIDENT`, or `VICE_PRESIDENT`
+- **Route Parameters:**
+  - `componentId` (UUID, required): Unique ID of the component to activate.
+- **Example Request:**
+  `PATCH http://localhost:5000/api/components/c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a/activate`
+- **Response (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "message": "Component activated successfully.",
+    "data": {
+      "id": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+      "code": "RES-10K-025W",
+      "name": "10k Ohm Resistor 1/4W",
+      "description": "Through-hole resistor pack",
+      "categoryId": "b7c29241-e6f8-4143-afc5-8fd30f34f9d9",
+      "trackingType": "BULK",
+      "quantityAvailable": 100,
+      "unit": "pcs",
+      "minimumStock": 20,
+      "storageDrawerId": "b3e5cf71-2b81-432d-94c6-e9185a0341e0",
+      "isActive": true,
+      "createdAt": "2026-11-17T07:00:00.000Z",
+      "updatedAt": "2026-11-18T15:30:00.000Z"
+    }
+  }
+  ```
+- **Error Responses:**
+  - `400 Bad Request`: `Invalid component Id..`
+  - `401 Unauthorized`: Missing or invalid authentication token.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `404 Not Found`: `Component not Found..`
+  - `409 Conflict`: `Component is already active.`
+  - `500 Internal Server Error`: Internal server error.
+
+---
+
 ## Quick Reference
 
 ```http
@@ -871,6 +1105,10 @@ Content-Type: application/json
 PATCH http://localhost:5000/api/components/categories/:categoryId/deactivate
 Authorization: Bearer <token>
 
+### Categories - Activate Category
+PATCH http://localhost:5000/api/components/categories/:categoryId/activate
+Authorization: Bearer <token>
+
 ### Categories - Delete Category
 DELETE http://localhost:5000/api/components/categories/:categoryId
 Authorization: Bearer <token>
@@ -895,8 +1133,12 @@ Authorization: Bearer <token>
 GET http://localhost:5000/api/components?categoryId=b7c29241-e6f8-4143-afc5-8fd30f34f9d9
 Authorization: Bearer <token>
 
+### Components - Filter by Stock Status (LOW_STOCK / OUT_OF_STOCK / IN_STOCK)
+GET http://localhost:5000/api/components?stockStatus=LOW_STOCK
+Authorization: Bearer <token>
+
 ### Components - Combined Search, Filter & Pagination
-GET http://localhost:5000/api/components?search=resistor&trackingType=BULK&page=1&limit=10
+GET http://localhost:5000/api/components?search=resistor&trackingType=BULK&stockStatus=LOW_STOCK&page=1&limit=10
 Authorization: Bearer <token>
 
 ### Components - Create Component (BULK)
@@ -931,4 +1173,23 @@ Content-Type: application/json
   "minimumStock": 2,
   "storageDrawerId": "<drawer_uuid>"
 }
+
+### Components - Update Component
+PATCH http://localhost:5000/api/components/:componentId
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "10k Ohm Resistor 1/2W",
+  "minimumStock": 50,
+  "storageDrawerId": "<drawer_uuid>"
+}
+
+### Components - Deactivate Component
+PATCH http://localhost:5000/api/components/:componentId/deactivate
+Authorization: Bearer <token>
+
+### Components - Activate Component
+PATCH http://localhost:5000/api/components/:componentId/activate
+Authorization: Bearer <token>
 ```
