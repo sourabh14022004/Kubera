@@ -60,9 +60,9 @@ async function main() {
             },
         });
 
-        if (!superAdminRole) {
+        if (!assigment) {
             throw new Error(
-                "Initial account dont have an SUPER_ADMIN assignemnt.",
+                "Initial account does not have an active SUPER_ADMIN assignment.",
             );
         }
 
