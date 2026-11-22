@@ -91,10 +91,14 @@ Kubera/
 │   │   ├── modules/
 │   │   │   ├── auth/              # /api/auth routes
 │   │   │   ├── storage/           # /api/storage routes
-│   │   │   └── components/        # /api/components routes
-│   │   │       ├── component.controller.ts
-│   │   │       ├── component.service.ts
-│   │   │       └── component.routes.ts
+│   │   │   ├── components/        # /api/components routes
+│   │   │   │   ├── component.controller.ts
+│   │   │   │   ├── component.service.ts
+│   │   │   │   └── component.routes.ts
+│   │   │   └── assets/            # /api/assets routes
+│   │   │       ├── asset.controller.ts
+│   │   │       ├── asset.service.ts
+│   │   │       └── asset.routes.ts
 │   │   └── generated/prisma/      # Generated Prisma client
 │   ├── .env.example
 │   ├── package.json
@@ -245,6 +249,7 @@ The backend exposes a REST API at `http://localhost:5000`. All endpoints except 
 | Storage | `/api/storage/racks` | CRUD for storage racks and drawers |
 | Component Categories | `/api/components/categories` | CRUD for component categories |
 | Components | `/api/components` | Search, filter, paginate, create, update components |
+| Assets | `/api/assets` | Register, search, filter, checkout, and return physical assets |
 
 For the full endpoint reference, see [`backend/API.md`](backend/API.md).
 
