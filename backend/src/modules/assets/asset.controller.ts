@@ -8,7 +8,9 @@ import {
     getMemberLoanSummary,
     type LoanListStatus,
     registerAsset,
-    returnAsset
+    returnAsset,
+    updateLoanDueDate,
+    getLoanById,
 } from "./asset.service.js";
 import { AssetStatus } from "../../generated/prisma/enums.js";
 
@@ -711,34 +713,195 @@ export async function getLoanSummaryController(
 }
 
 export async function getMemberLoanSummaryController(
-  req: Request,
-  res: Response,
+    req: Request,
+    res: Response,
 ): Promise<void> {
-  try {
-    // Get the authenticated member's internal Kubera ID
-    const memberId = res.locals.KuberaUser.id;
+    try {
+        // Get the authenticated member's internal Kubera ID
+        const memberId = res.locals.KuberaUser.id;
 
-    const result = await getMemberLoanSummary(memberId);
+        const result = await getMemberLoanSummary(memberId);
 
-    if (!result) {
-      res.status(404).json({
-        success: false,
-        message: "Member not found.",
-      });
-      return;
+        if (!result) {
+            res.status(404).json({
+                success: false,
+                message: "Member not found.",
+            });
+            return;
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Member loan summary retrieved successfully.",
+            data: result,
+        });
+    } catch (error) {
+        console.error("Get member loan summary error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
+        });
+    }
+}
+
+export async function updateLoanDueDateController(
+    req: Request<{ loanId: string }>,
+    res: Response,
+): Promise<void> {
+    try {
+        // 1. Validate loan ID
+        const { loanId } = req.params;
+
+        if (!UUID_REGEX.test(loanId)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid loan ID.",
+            });
+            return;
+        }
+
+        // 2. Validate request body
+        if (
+            typeof req.body !== "object" ||
+            req.body === null ||
+            Array.isArray(req.body)
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid request body.",
+            });
+            return;
+        }
+
+        const { dueAt } = req.body;
+
+        // 3. Validate due date
+        if (
+            typeof dueAt !== "string" ||
+            Number.isNaN(Date.parse(dueAt)) ||
+            Date.parse(dueAt) <= Date.now()
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Due date must be a valid future date.",
+            });
+            return;
+        }
+
+        // 4. Update due date
+        const result = await updateLoanDueDate({
+            loanId,
+            dueAt: new Date(dueAt),
+        });
+
+        // 5. Handle service outcomes
+        switch (result.outcome) {
+            case "NOT_FOUND":
+                res.status(404).json({
+                    success: false,
+                    message: "Loan not found.",
+                });
+                return;
+
+            case "LOAN_CLOSED":
+                res.status(409).json({
+                    success: false,
+                    message: "Cannot update the due date of a closed loan.",
+                });
+                return;
+
+            case "INVALID_DUE_DATE":
+                res.status(400).json({
+                    success: false,
+                    message: "Due date must be in the future.",
+                });
+                return;
+
+            case "UPDATED":
+                res.status(200).json({
+                    success: true,
+                    message: "Loan due date updated successfully.",
+                    data: result.data,
+                });
+                return;
+        }
+    } catch (error) {
+        console.error("Update loan due date error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error.",
+        });
+    }
+}
+
+export async function getLoansByIdController(
+    req: Request<{ loanId: string }>,
+    res: Response,
+): Promise<void> {
+    try {
+
+        // 1. Vlidate loan ID
+        const { loanId } = req.params;
+
+        if (!UUID_REGEX.test(loanId)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid loan id."
+            })
+            return;
+        }
+
+        // 2. Retrive loan details
+        const loan = await getLoanById(loanId);
+
+        if (!loan) {
+            res.status(404).json({
+                success: false,
+                message: "Loan not found."
+            })
+            return;
+        }
+
+        // 3. Check access permissions
+        const currentUser = res.locals.KuberaUser;
+
+        const managementRoles = [
+            "SUPER_ADMIN",
+            "ADMIN",
+            "CLUB_PRESIDENT",
+            "VICE_PRESIDENT",
+        ];
+
+        const canViewAllLoans = currentUser.roles.some(
+            (role: string) => managementRoles.includes(role),
+        );
+
+        // Members can view only their own loans.
+        if (!canViewAllLoans && loan.memberId !== currentUser.id) {
+            res.status(404).json({
+                success: false,
+                message: "Loan not found.",
+            });
+            return;
+        }
+
+        // 4. Return loan details
+        res.status(200).json({
+            success: true,
+            message: "Loan details retrieved successfully.",
+            data: loan,
+        });
+
+
+    } catch (error) {
+        console.log("Get loan details errro:", error)
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error."
+        })
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Member loan summary retrieved successfully.",
-      data: result,
-    });
-  } catch (error) {
-    console.error("Get member loan summary error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
 }

@@ -664,3 +664,139 @@ export async function getMemberLoanSummary(memberId: string) {
         summary,
     };
 }
+
+interface UpdateLoanDueDateInput {
+    loanId: string;
+    dueAt: Date;
+}
+
+export async function updateLoanDueDate(
+    input: UpdateLoanDueDateInput,
+) {
+    return prisma.$transaction(async (tx) => {
+        // 1. Find the loan
+        const loan = await tx.inventoryLoan.findUnique({
+            where: { id: input.loanId },
+            select: {
+                id: true,
+                quantityBorrowed: true,
+                quantityReturned: true,
+                quantityWrittenOff: true,
+            },
+        });
+
+        if (!loan) {
+            return { outcome: "NOT_FOUND" as const };
+        }
+
+        // 2. Check whether the loan is still outstanding
+        const outstandingQuantity = Math.max(
+            0,
+            loan.quantityBorrowed -
+            loan.quantityReturned -
+            loan.quantityWrittenOff,
+        );
+
+        if (outstandingQuantity === 0) {
+            return { outcome: "LOAN_CLOSED" as const };
+        }
+
+        // 3. Validate the new due date
+        if (input.dueAt <= new Date()) {
+            return { outcome: "INVALID_DUE_DATE" as const };
+        }
+
+        // 4. Update the due date
+        const updatedLoan = await tx.inventoryLoan.update({
+            where: { id: input.loanId },
+            data: {
+                dueAt: input.dueAt,
+            },
+        });
+
+        return {
+            outcome: "UPDATED" as const,
+            data: updatedLoan,
+        };
+    });
+}
+
+export async function getLoanById(loanId: string) {
+    const loan = await prisma.inventoryLoan.findUnique({
+        where: { id: loanId },
+        include: {
+            member: {
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                },
+            },
+            issuedBy: {
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                }
+            },
+            component: {
+                select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    trackingType: true,
+                },
+            },
+            asset: {
+                select: {
+                    id: true,
+                    assetTag: true,
+                    status: true,
+                },
+            },
+            movements: {
+                orderBy: {
+                    createdAt: "asc",
+                },
+                select: {
+                    id: true,
+                    movementType: true,
+                    quantityChange: true,
+                    note: true,
+                    createdAt: true,
+                    performedBy: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                        },
+                    },
+                },
+            },
+        },
+    })
+
+    if (!loan) {
+        return null;
+    }
+
+    const outstandingQuantity = Math.max(
+        0,
+        loan.quantityBorrowed -
+        loan.quantityReturned -
+        loan.quantityWrittenOff,
+    );
+
+    const loanStatus =
+        outstandingQuantity === 0
+            ? "CLOSED"
+            : loan.dueAt && loan.dueAt < new Date()
+                ? "OVERDUE"
+                : "OUTSTANDING";
+
+    return {
+        ...loan,
+        outstandingQuantity,
+        loanStatus,
+    };
+} 
