@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { requireRole } from "../../middlewares/requireRole.js";
-import { 
-    getAllLoansController, 
-    getMyLoansController, 
-    getLoanSummaryController, 
+import {
+    getAllLoansController,
+    getMyLoansController,
+    getLoanSummaryController,
     getMemberLoanSummaryController,
     updateLoanDueDateController,
     getLoansByIdController,
@@ -32,9 +32,9 @@ router.get("/:loanId", getLoansByIdController)
 
 // Register the due-date route
 router.patch(
-  "/:loanId/due-date",
-  requireRole("SUPER_ADMIN", "ADMIN", "CLUB_PRESIDENT", "VICE_PRESIDENT"),
-  updateLoanDueDateController,
+    "/:loanId/due-date",
+    requireRole("SUPER_ADMIN", "ADMIN", "CLUB_PRESIDENT", "VICE_PRESIDENT"),
+    updateLoanDueDateController,
 );
 
 // Only management roles can view everyone's loans.
