@@ -28,6 +28,11 @@ Base URL: `http://localhost:5000`
   - [3. Update Component](#3-update-component)
   - [4. Deactivate Component](#4-deactivate-component)
   - [5. Activate Component](#5-activate-component)
+- [Assets Module](#assets-module)
+  - [1. Get All Assets (Search & Filter)](#1-get-all-assets-search--filter)
+  - [2. Register Asset](#2-register-asset)
+  - [3. Checkout Asset](#3-checkout-asset)
+  - [4. Return Asset](#4-return-asset)
 - [Quick Reference](#quick-reference)
 
 ---
@@ -1015,6 +1020,313 @@ Restore an inactive component back to active status (`isActive = true`).
 
 ---
 
+## Assets Module
+
+> **Note:** All `/api/assets/*` endpoints require authentication via `Authorization: Bearer <token>`.
+
+### 1. Get All Assets (Search & Filter)
+Retrieve a paginated list of physical serialized assets with support for search by asset tag or serial number, filtering by parent component ID, and filtering by asset status. Automatically resolves the parent component and computes the human-readable storage location code (`COLOR-Rxx-Cxx-Dxx`) if assigned to an active storage drawer.
+
+- **URL:** `http://localhost:5000/api/assets`
+- **Method:** `GET`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Query Parameters:**
+  | Parameter | Type | Required | Default | Allowed Values / Format | Description |
+  | :--- | :--- | :--- | :--- | :--- | :--- |
+  | `search` | string | No | - | Text | Case-insensitive substring search matching `assetTag` or `serialNumber`. |
+  | `componentId` | string (UUID) | No | - | UUID | Filters assets belonging to a specific component. |
+  | `status` | string | No | `ALL` | `AVAILABLE`, `CHECKED_OUT`, `UNDER_MAINTENANCE`, `DAMAGED`, `LOST`, `RETIRED`, `ALL` | Filters assets by status. |
+  | `page` | number | No | `1` | Integer >= 1 | Page number for pagination. |
+  | `limit` | number | No | `20` | Integer 1 to 100 | Number of assets returned per page. |
+
+- **Example Requests:**
+  - Get all assets (default pagination):
+    `GET http://localhost:5000/api/assets`
+  - Search by asset tag or serial number:
+    `GET http://localhost:5000/api/assets?search=AST-ARD`
+  - Filter by parent component ID:
+    `GET http://localhost:5000/api/assets?componentId=c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a`
+  - Filter by asset status:
+    `GET http://localhost:5000/api/assets?status=AVAILABLE`
+    or `GET http://localhost:5000/api/assets?status=CHECKED_OUT`
+  - Combined search, filter & pagination:
+    `GET http://localhost:5000/api/assets?search=AST-ARD&status=AVAILABLE&page=1&limit=10`
+
+- **Response (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "message": "Assets retrieved successfully.",
+    "data": [
+      {
+        "id": "e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b",
+        "componentId": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+        "assetTag": "AST-ARD-001",
+        "serialNumber": "SN-987654321",
+        "status": "AVAILABLE",
+        "checkedOutToId": null,
+        "checkedOutAt": null,
+        "acquiredAt": "2026-11-20T10:00:00.000Z",
+        "notes": "Purchased for robotics kit",
+        "createdAt": "2026-11-21T07:00:00.000Z",
+        "updatedAt": "2026-11-21T07:00:00.000Z",
+        "component": {
+          "id": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+          "code": "ARD-UNO-R3",
+          "name": "Arduino Uno R3",
+          "trackingType": "INDIVIDUAL",
+          "storageDrawer": {
+            "drawerNumber": 1,
+            "rack": {
+              "color": "GREEN",
+              "drawersPerRack": 3,
+              "rackNumber": 1
+            }
+          }
+        },
+        "locationCode": "GREEN-R03-C01-D01"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "totalPages": 1
+    }
+  }
+  ```
+
+- **Error Responses:**
+  - `400 Bad Request`:
+    - `Query parameters must be single string values.`
+    - `Invalid component ID.` (malformed UUID)
+    - `Invalid asset status.`
+    - `Page must be positive and limit must be between 1 and 100.`
+  - `401 Unauthorized`: Missing or invalid authentication token.
+  - `500 Internal Server Error`: Internal server error.
+
+---
+
+### 2. Register Asset
+Register a new physical serialized asset under an active component configured with `INDIVIDUAL` tracking type. Automatically creates an initial `STOCK_IN` inventory movement record.
+
+- **URL:** `http://localhost:5000/api/assets`
+- **Method:** `POST`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Required Roles:** `SUPER_ADMIN`, `ADMIN`, `CLUB_PRESIDENT`, or `VICE_PRESIDENT`
+- **Headers:**
+  ```http
+  Content-Type: application/json
+  Authorization: Bearer <token>
+  ```
+- **Request Body Parameters:**
+  | Field | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `componentId` | string (UUID) | Yes | ID of an active component with tracking type `INDIVIDUAL`. |
+  | `assetTag` | string | Yes | Unique asset tag identifier (e.g. `"AST-ARD-001"`). Non-empty string. |
+  | `serialNumber` | string | No | Optional manufacturer serial number. Non-empty string if provided. Must be unique. |
+  | `acquiredAt` | string (ISO Date) | No | Optional acquisition date string (e.g. `"2026-11-20T10:00:00.000Z"`). |
+  | `notes` | string | No | Optional asset notes or condition remarks. |
+
+- **Example Request:**
+  ```json
+  {
+    "componentId": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+    "assetTag": "AST-ARD-001",
+    "serialNumber": "SN-987654321",
+    "acquiredAt": "2026-11-20T10:00:00.000Z",
+    "notes": "Purchased for robotics kit"
+  }
+  ```
+
+- **Response (`201 Created`):**
+  ```json
+  {
+    "success": true,
+    "message": "Asset registered successfully.",
+    "data": {
+      "id": "e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b",
+      "componentId": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+      "assetTag": "AST-ARD-001",
+      "serialNumber": "SN-987654321",
+      "status": "AVAILABLE",
+      "checkedOutToId": null,
+      "checkedOutAt": null,
+      "acquiredAt": "2026-11-20T10:00:00.000Z",
+      "notes": "Purchased for robotics kit",
+      "createdAt": "2026-11-21T07:00:00.000Z",
+      "updatedAt": "2026-11-21T07:00:00.000Z"
+    }
+  }
+  ```
+
+- **Error Responses:**
+  - `400 Bad Request`:
+    - `Invalid request body.`
+    - `Invalid component Id / A valid component id required. `
+    - `Asset tag is required.`
+    - `Serial number must be a non-empty string.`
+    - `Acquired date must be a valid date string.`
+    - `Notes must be a string.`
+  - `401 Unauthorized`: Missing or invalid authentication token.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `404 Not Found`: `Component not found.`
+  - `409 Conflict`:
+    - `Cannot register assets under an inactive component.`
+    - `Assets can only be registered for INDIVIDUAL components.`
+    - `Asset tag or serial number already exists.`
+  - `500 Internal Server Error`: Internal server error.
+
+---
+
+### 3. Checkout Asset
+Issue an available individual asset to an active club member. Atomically marks the asset as `CHECKED_OUT`, creates an `InventoryLoan` record, and logs a `CHECKOUT` inventory movement.
+
+- **URL:** `http://localhost:5000/api/assets/:assetId/checkout`
+- **Method:** `POST`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Required Roles:** `SUPER_ADMIN`, `ADMIN`, `CLUB_PRESIDENT`, or `VICE_PRESIDENT`
+- **Route Parameters:**
+  - `assetId` (UUID, required): Unique ID of the asset to check out.
+- **Headers:**
+  ```http
+  Content-Type: application/json
+  Authorization: Bearer <token>
+  ```
+- **Request Body Parameters:**
+  | Field | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `memberId` | string (UUID) | Yes | User ID of the active member borrowing the asset. |
+  | `dueAt` | string (ISO Date) | No | Optional expected return date. Must be a valid future date. |
+  | `note` | string | No | Optional checkout note/memo. |
+
+- **Example Request:**
+  `POST http://localhost:5000/api/assets/e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b/checkout`
+  ```json
+  {
+    "memberId": "019318b2-5f6b-7c12-9c12-0123456789ab",
+    "dueAt": "2026-11-28T18:00:00.000Z",
+    "note": "Borrowed for robotics competition"
+  }
+  ```
+
+- **Response (`201 Created`):**
+  ```json
+  {
+    "success": true,
+    "message": "Asset checked out successfully.",
+    "data": {
+      "assetId": "e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b",
+      "assetTag": "AST-ARD-001",
+      "loan": {
+        "id": "f5a7b8c9-0d1e-2f3a-4b5c-6d7e8f9a0b1c",
+        "componentId": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+        "assetId": "e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b",
+        "memberId": "019318b2-5f6b-7c12-9c12-0123456789ab",
+        "issuedById": "019318b2-5f6b-7c12-9c12-9876543210fe",
+        "quantityBorrowed": 1,
+        "quantityReturned": 0,
+        "quantityWrittenOff": 0,
+        "checkedOutAt": "2026-11-21T08:00:00.000Z",
+        "dueAt": "2026-11-28T18:00:00.000Z",
+        "note": "Borrowed for robotics competition",
+        "createdAt": "2026-11-21T08:00:00.000Z",
+        "updatedAt": "2026-11-21T08:00:00.000Z"
+      }
+    }
+  }
+  ```
+
+- **Error Responses:**
+  - `400 Bad Request`:
+    - `Invalid asset ID.` (malformed UUID)
+    - `Invalid request body.`
+    - `A valid member ID is required.`
+    - `Due date must be a valid future date.`
+    - `Note must be a string.`
+  - `401 Unauthorized`: Missing or invalid authentication token.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `404 Not Found`:
+    - `Asset not found.`
+    - `Member not found.`
+  - `409 Conflict`:
+    - `Cannot checkout an asset under an inactive component.`
+    - `This operation requires an INDIVIDUAL component.`
+    - `Cannot issue an asset to an inactive member.`
+    - `Asset is not currently available for checkout.`
+  - `500 Internal Server Error`: Internal server error.
+
+---
+
+### 4. Return Asset
+Record the return of an individual asset. Atomically sets the asset status back to `AVAILABLE`, increments `quantityReturned` on the corresponding active loan, and logs a `RETURN` inventory movement.
+
+- **URL:** `http://localhost:5000/api/assets/:assetId/return`
+- **Method:** `PATCH`
+- **Auth Required:** Yes (`Bearer <token>`)
+- **Required Roles:** `SUPER_ADMIN`, `ADMIN`, `CLUB_PRESIDENT`, or `VICE_PRESIDENT`
+- **Route Parameters:**
+  - `assetId` (UUID, required): Unique ID of the asset being returned.
+- **Headers:**
+  ```http
+  Content-Type: application/json
+  Authorization: Bearer <token>
+  ```
+- **Request Body Parameters:** (Optional)
+  | Field | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `note` | string | No | Optional note regarding the return condition. |
+
+- **Example Request:**
+  `PATCH http://localhost:5000/api/assets/e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b/return`
+  ```json
+  {
+    "note": "Returned in perfect working condition"
+  }
+  ```
+
+- **Response (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "message": "Asset returned successfully.",
+    "data": {
+      "assetId": "e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b",
+      "assetTag": "AST-ARD-001",
+      "loan": {
+        "id": "f5a7b8c9-0d1e-2f3a-4b5c-6d7e8f9a0b1c",
+        "componentId": "c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a",
+        "assetId": "e4b6c31a-5d2a-4a21-9952-1c2d3e4f5a6b",
+        "memberId": "019318b2-5f6b-7c12-9c12-0123456789ab",
+        "issuedById": "019318b2-5f6b-7c12-9c12-9876543210fe",
+        "quantityBorrowed": 1,
+        "quantityReturned": 1,
+        "quantityWrittenOff": 0,
+        "checkedOutAt": "2026-11-21T08:00:00.000Z",
+        "dueAt": "2026-11-28T18:00:00.000Z",
+        "note": "Returned in perfect working condition",
+        "createdAt": "2026-11-21T08:00:00.000Z",
+        "updatedAt": "2026-11-21T09:30:00.000Z"
+      }
+    }
+  }
+  ```
+
+- **Error Responses:**
+  - `400 Bad Request`:
+    - `Invalid asset ID.` (malformed UUID)
+    - `Invalid request body.`
+    - `Note must be a string.`
+  - `401 Unauthorized`: Missing or invalid authentication token.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `404 Not Found`: `Asset not found.`
+  - `409 Conflict`:
+    - `Asset is not currently checked out.`
+    - `No outstanding loan was found for this asset.`
+  - `500 Internal Server Error`: Internal server error.
+
+---
+
 ## Quick Reference
 
 ```http
@@ -1192,4 +1504,57 @@ Authorization: Bearer <token>
 ### Components - Activate Component
 PATCH http://localhost:5000/api/components/:componentId/activate
 Authorization: Bearer <token>
+
+### Assets - Get All (Paginated)
+GET http://localhost:5000/api/assets?page=1&limit=20
+Authorization: Bearer <token>
+
+### Assets - Search by Tag or Serial
+GET http://localhost:5000/api/assets?search=AST-ARD
+Authorization: Bearer <token>
+
+### Assets - Filter by Status
+GET http://localhost:5000/api/assets?status=AVAILABLE
+Authorization: Bearer <token>
+
+### Assets - Filter by Component ID
+GET http://localhost:5000/api/assets?componentId=c2a9df34-8c7e-4123-9a1b-4f5e6d7c8b9a
+Authorization: Bearer <token>
+
+### Assets - Combined Search, Filter & Pagination
+GET http://localhost:5000/api/assets?search=AST-ARD&status=AVAILABLE&page=1&limit=10
+Authorization: Bearer <token>
+
+### Assets - Register Asset
+POST http://localhost:5000/api/assets
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "componentId": "<component_uuid>",
+  "assetTag": "AST-ARD-001",
+  "serialNumber": "SN-987654321",
+  "acquiredAt": "2026-11-20T10:00:00.000Z",
+  "notes": "Purchased for robotics kit"
+}
+
+### Assets - Checkout Asset
+POST http://localhost:5000/api/assets/:assetId/checkout
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "memberId": "<member_user_uuid>",
+  "dueAt": "2026-11-28T18:00:00.000Z",
+  "note": "Borrowed for robotics competition"
+}
+
+### Assets - Return Asset
+PATCH http://localhost:5000/api/assets/:assetId/return
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "note": "Returned in perfect working condition"
+}
 ```
