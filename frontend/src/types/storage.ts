@@ -1,7 +1,16 @@
-
 export type StorageColor = "GREEN" | "BLACK" | "ORANGE";
 
+export type StorageRackStatus = "ACTIVE" | "RETIRED";
+
+export type RackStatusFilter = StorageRackStatus | "ALL";
+
 export type TrackingType = "BULK" | "INDIVIDUAL";
+
+export const ALLOWED_DRAWERS: Record<StorageColor, number[]> = {
+  GREEN: [3],
+  BLACK: [2, 3, 4],
+  ORANGE: [2],
+};
 
 export interface StorageComponent {
   id: string;
@@ -36,6 +45,8 @@ export interface StorageRack {
   color: StorageColor;
   drawersPerRack: number;
   rackNumber: number;
+  status: StorageRackStatus;
+  retiredAt: string | null;
   createdAt: string;
   updatedAt: string;
   locationCode: string;
@@ -59,9 +70,4 @@ export interface StorageDrawerDetail {
   components: StorageComponentDetail[];
 }
 
-export interface ApiResponse<T> {
-  success: boolean;
-  count?: number;
-  data: T;
-  message?: string;
-}
+export type { ApiResponse } from "./api";

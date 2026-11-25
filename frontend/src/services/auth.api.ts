@@ -1,21 +1,17 @@
-
-import { authenticatedRequest } from "./api-client";
-
-export interface NeonAuthProfile {
-  id: string;
-  email?: string;
-  name?: string;
-}
+import { authenticatedRequest, publicRequest } from "./api-client";
+import type { HealthResponse, KuberaUser } from "../types/api";
 
 interface AuthMeResponse {
   success: boolean;
   message: string;
-  user: NeonAuthProfile;
+  user: KuberaUser;
 }
 
-export async function getCurrentAuthProfile(): Promise<NeonAuthProfile> {
-  const response =
-    await authenticatedRequest<AuthMeResponse>("/auth/me");
-
+export async function getCurrentAuthProfile(): Promise<KuberaUser> {
+  const response = await authenticatedRequest<AuthMeResponse>("/auth/me");
   return response.user;
+}
+
+export async function checkApiHealth(): Promise<HealthResponse> {
+  return publicRequest<HealthResponse>("/health");
 }
