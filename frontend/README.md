@@ -11,6 +11,10 @@ Modern React + TypeScript frontend for **Kubera**, built directly against the cu
   - [Environment Variables](#environment-variables)
   - [Available Scripts](#available-scripts)
 - [Directory Structure](#directory-structure)
+- [Architecture Diagrams](#architecture-diagrams)
+  - [1. Routing & Auth Flow](#1-routing--auth-flow)
+  - [2. Neon Auth & Backend API Connection Flow](#2-neon-auth--backend-api-connection-flow)
+  - [3. Frontend Domain & Service Class Diagram](#3-frontend-domain--service-class-diagram)
 - [Design System & Layout Shell](#design-system--layout-shell)
 - [Authentication & Role-Based UI Access](#authentication--role-based-ui-access)
 - [Routes & Pages Reference](#routes--pages-reference)
@@ -128,6 +132,164 @@ frontend/
     │   └── inventory.ts                 # Category, ComponentItem, AssetItem, LoanItem, LoanDetail, Overview, Alerts, Movements
     └── utils/
         └── format.ts                    # UUID_REGEX, date/time/relative formatters, getInitials, formatRoleLabel
+```
+
+---
+
+## Architecture Diagrams
+
+### 1. Routing & Auth Flow
+
+```mermaid
+flowchart TD
+    Entry["Browser Request"] --> Router["App Router (ToastProvider)"]
+    Router -->|"/"| Home["HomePage (Public + /api/health)"]
+    Router -->|"/login"| Login["LoginPage (Neon Google OAuth)"]
+    Router -->|"Protected Routes"| Guard["RequiredAuth (authClient.useSession)"]
+
+    Guard -->|"Pending"| Spinner["Session Loading Screen"]
+    Guard -->|"No User"| RedirectLogin["Redirect to /login"]
+    Guard -->|"Session Active"| AuthCtx["AuthProvider (GET /api/auth/me)"]
+
+    AuthCtx --> Shell["DashboardLayout (Sidebar + Topbar)"]
+    Shell -->|"Kubera User Error"| Recovery["Error Recovery (Retry / Sign Out)"]
+    Shell -->|"Authenticated User"| Pages["Workspace Pages"]
+
+    Pages --> Dash["/dashboard (DashboardPage)"]
+    Pages --> Inv["/inventory (InventoryPage)"]
+    Pages --> Loans["/loans (AssetsAndLoansPage)"]
+    Pages --> Storage["/storage (StoragePage)"]
+    Pages --> Cats["/categories (CategoriesPage)"]
+    Pages --> Act["/activity (ActivityPage)"]
+    Pages --> Mem["/members (MembersPage)"]
+    Pages --> Set["/settings (SettingsPage)"]
+```
+
+### 2. Neon Auth & Backend API Connection Flow
+
+```mermaid
+flowchart LR
+    Browser["React Frontend"] -->|"1. Google Sign-In & Session Cookie"| NeonAuth["Neon Auth (VITE_NEON_AUTH_URL)"]
+    Browser -->|"2. GET /token with credentials include"| NeonAuth
+    NeonAuth -->|"3. Short-Lived Signed JWT"| ApiClient["api-client.ts (authenticatedRequest)"]
+    ApiClient -->|"4. Authorization Bearer JWT"| Backend["Express Backend (VITE_API_BASE_URL)"]
+    Backend -->|"5. verifyNeonAuth via JWKS"| JWKS["Neon Auth Public Keys (NEON_AUTH_JWKS_URL)"]
+    Backend -->|"6. resolveKuberaUser + requireRole"| DB["PostgreSQL (users & user_role_assignments)"]
+```
+
+### 3. Frontend Domain & Service Class Diagram
+
+```mermaid
+classDiagram
+    class AuthContextValue {
+        +KuberaUser user
+        +boolean loading
+        +string error
+        +boolean isManagement
+        +boolean isAdmin
+        +refreshProfile() Promise~void~
+        +signOut() Promise~void~
+    }
+
+    class KuberaUser {
+        +string id
+        +string name
+        +string email
+        +string[] roles
+    }
+
+    class ApiError {
+        +number status
+        +string message
+        +Record details
+    }
+
+    class StorageRack {
+        +string id
+        +string color
+        +number drawersPerRack
+        +number rackNumber
+        +string status
+        +string locationCode
+        +StorageDrawer[] drawers
+    }
+
+    class StorageDrawer {
+        +string id
+        +string rackId
+        +number drawerNumber
+        +string locationCode
+        +StorageComponent[] components
+    }
+
+    class ComponentCategory {
+        +string id
+        +string name
+        +string description
+        +boolean isActive
+    }
+
+    class ComponentItem {
+        +string id
+        +string code
+        +string name
+        +string categoryId
+        +string trackingType
+        +number quantityAvailable
+        +string unit
+        +number minimumStock
+        +string storageDrawerId
+        +string locationCode
+        +boolean isActive
+    }
+
+    class AssetItem {
+        +string id
+        +string componentId
+        +string assetTag
+        +string serialNumber
+        +string status
+        +string checkedOutToId
+        +string locationCode
+    }
+
+    class LoanItem {
+        +string id
+        +string componentId
+        +string assetId
+        +string memberId
+        +string issuedById
+        +number quantityBorrowed
+        +number quantityReturned
+        +number quantityWrittenOff
+        +number outstandingQuantity
+        +string loanStatus
+        +string dueAt
+    }
+
+    class InventoryMovement {
+        +string id
+        +string componentId
+        +string assetId
+        +string loanId
+        +string movementType
+        +number quantityChange
+        +string performedById
+        +string memberId
+        +string note
+        +string createdAt
+    }
+
+    AuthContextValue --> KuberaUser : manages
+    StorageRack "1" *-- "many" StorageDrawer : contains
+    StorageDrawer "0..1" o-- "many" ComponentItem : stores
+    ComponentCategory "1" o-- "many" ComponentItem : classifies
+    ComponentItem "1" *-- "many" AssetItem : tracks
+    ComponentItem "1" --> "many" LoanItem : loaned in
+    AssetItem "0..1" --> "many" LoanItem : assigned to
+    KuberaUser "1" --> "many" LoanItem : borrows / issues
+    ComponentItem "1" --> "many" InventoryMovement : logs
+    LoanItem "0..1" --> "many" InventoryMovement : records
 ```
 
 ---
