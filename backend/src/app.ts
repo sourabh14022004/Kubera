@@ -9,6 +9,7 @@ import componentRoutes from "./modules/components/component.routes.js"
 import assetRoutes from "./modules/assets/asset.routes.js" 
 import loanRoutes from "./modules/assets/loan.routes.js"
 import bulkRoutes from "./modules/inventory/bulk.routes.js"
+import reportRoutes from "./modules/inventory/report.routes.js";
 
 const app = express();
 
@@ -31,6 +32,9 @@ app.use("/api/loans", loanRoutes)
 
 // Bulk routes
 app.use("/api/inventory/bulk", bulkRoutes);
+
+// Report routes
+app.use("/api/inventory/reports", reportRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
