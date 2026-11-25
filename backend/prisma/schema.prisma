@@ -268,8 +268,9 @@ model InventoryMovement {
   componentId String  @map("component_id") @db.Uuid
   assetId     String? @map("asset_id") @db.Uuid
 
-  movementType   InventoryMovementType @map("movement_type")
-  quantityChange Int                   @map("quantity_change")
+  movementType      InventoryMovementType @map("movement_type")
+  quantityChange    Int                   @map("quantity_change")
+  quantityAffected  Int?                  @map("quantity_affected")
 
   performedById String  @map("performed_by_id") @db.Uuid
   memberId      String? @map("member_id") @db.Uuid
